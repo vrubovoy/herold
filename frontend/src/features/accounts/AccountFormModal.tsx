@@ -82,7 +82,20 @@ export function AccountFormModal({ open, account, onClose, onSubmit, pending, er
     : { host: form.smtpHost, port: form.smtpPort, security: form.smtpSecurity, username: form.smtpUsername, password: form.smtpPassword }
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
-    setForm((prev) => ({ ...prev, [key]: value }))
+    setForm((prev) => {
+      const next = { ...prev, [key]: value }
+      // Most providers (Yandex included) reject sending when the From:
+      // address doesn't match the authenticated account, so a mismatch
+      // here is a common real-world cause of "send failed", not just a
+      // cosmetic default - keep "Email отправителя" following the IMAP
+      // login as the user types it, for a *new* account, as long as they
+      // haven't diverged it themselves (still blank, or still exactly
+      // what the login was before this keystroke).
+      if (key === 'imapUsername' && !isEdit && (prev.fromEmail === '' || prev.fromEmail === prev.imapUsername)) {
+        next.fromEmail = value as string
+      }
+      return next
+    })
     // Any change invalidates a previous test result - it tested a
     // credential set that no longer matches what would actually be saved.
     setTestState('idle')
@@ -268,6 +281,9 @@ export function AccountFormModal({ open, account, onClose, onSubmit, pending, er
           <Field label="Имя отправителя" value={form.fromName} onChange={(e) => update('fromName', e.target.value)} placeholder="Как будет видно получателям" disabled={pending} />
           <Field label="Email отправителя" type="email" value={form.fromEmail} onChange={(e) => update('fromEmail', e.target.value)} disabled={pending} />
         </div>
+        <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+          У большинства провайдеров (включая Яндекс) email отправителя должен совпадать с логином IMAP - иначе сервер отклонит отправку.
+        </p>
       </div>
     </Modal>
   )
