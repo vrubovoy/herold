@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Inbox, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { Inbox, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { Button, EmptyState, Toast } from '@zudar107/schloss-ui'
 import { HeroIllustration } from '../../components/HeroIllustration'
 import { useToast } from '../../hooks/useToast'
@@ -149,12 +149,12 @@ export function AccountsPage() {
       )}
 
       {!isLoading && !isError && accounts.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '1rem' }}>
           {accounts.map((account) => (
-            <AccountRow
+            <AccountTile
               key={account.id}
               account={account}
-              onEdit={() => openEdit(account)}
+              onOpen={() => openEdit(account)}
               onDelete={() => deleteMutation.mutate(account.id)}
             />
           ))}
@@ -180,28 +180,51 @@ export function AccountsPage() {
   )
 }
 
-function AccountRow({ account, onEdit, onDelete }: {
-  account: MailAccount; onEdit: () => void; onDelete: () => void
+// The whole card opens the edit form - unlike Schrank's own folder tiles,
+// there's no separate "drill into" action an account could need instead,
+// so a dedicated pencil icon here would just duplicate what clicking
+// anywhere else on the card already does.
+function AccountTile({ account, onOpen, onDelete }: {
+  account: MailAccount; onOpen: () => void; onDelete: () => void
 }) {
   return (
-    <div className="card" style={{ padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen() } }}
+      className="card"
+      style={{ padding: '1.25rem', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}
+    >
       <div style={{
         width: 40, height: 40, borderRadius: 10, background: 'var(--accent-muted)', color: 'var(--accent)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
       }}>
         <Inbox size={18} />
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)' }}>{account.label}</div>
-        <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+      <div style={{ minWidth: 0 }}>
+        <div title={account.label} style={{
+          fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
+          {account.label}
+        </div>
+        <div title={`${account.imapUsername} · ${account.imapHost}:${account.imapPort}`} style={{
+          fontSize: '0.8125rem', color: 'var(--text-muted)',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
           {account.imapUsername} · {account.imapHost}:{account.imapPort} ({SECURITY_LABEL[account.imapSecurity]})
         </div>
         {account.syncState === 'error' && account.lastError && (
-          <div style={{ fontSize: '0.75rem', color: 'var(--danger)', marginTop: '0.25rem' }}>{account.lastError}</div>
+          <div title={account.lastError} style={{
+            fontSize: '0.75rem', color: 'var(--danger)', marginTop: '0.25rem',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {account.lastError}
+          </div>
         )}
       </div>
-      <div style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}>
-        <IconActionButton onClick={onEdit} label={`Изменить «${account.label}»`}><Pencil size={15} /></IconActionButton>
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
         <IconActionButton onClick={onDelete} danger label={`Отключить «${account.label}»`}><Trash2 size={15} /></IconActionButton>
       </div>
     </div>

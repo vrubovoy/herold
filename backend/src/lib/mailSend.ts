@@ -34,12 +34,36 @@ export interface SentMail {
 // 'starttls''s opportunistic-upgrade behavior.
 function transportOptions(account: MailAccount) {
   const auth = { user: account.smtpUsername, pass: decryptCredential(account.smtpPasswordEncrypted) }
-  const base = { host: account.smtpHost, port: account.smtpPort, auth, connectionTimeout: 20_000, greetingTimeout: 20_000 }
+  const base = {
+    host: account.smtpHost, port: account.smtpPort, auth,
+    connectionTimeout: 20_000, greetingTimeout: 20_000,
+    // nodemailer's own default (no cap - effectively unbounded) leaves a
+    // stalled connection hanging for a very long time if the server
+    // accepts the TCP connection but then never responds mid-transaction
+    // (no packets to time out the connect/greeting phases against) - a
+    // "Отправка…" button that never resolves reads as the app being
+    // frozen, not as a slow server. dnsTimeout guards the lookup itself.
+    socketTimeout: 20_000, dnsTimeout: 20_000,
+  }
   switch (account.smtpSecurity) {
     case 'tls': return { ...base, secure: true }
     case 'starttls': return { ...base, secure: false, requireTLS: true }
     case 'none': return { ...base, secure: false, ignoreTLS: true }
   }
+}
+
+// Same reasoning as lib/imapConnection.ts's localizeImapError - nodemailer
+// throws raw English text, never fit to show a user directly.
+export function localizeSmtpError(error: unknown): string {
+  if (error && typeof error === 'object' && 'code' in error) {
+    const code = (error as { code?: string }).code
+    if (code === 'EAUTH') return 'Неверный логин или пароль для SMTP'
+    if (code === 'ETIMEDOUT' || code === 'ESOCKET') return 'SMTP-сервер не отвечает - проверьте адрес, порт и шифрование'
+    if (code === 'ECONNECTION') return 'Не удалось подключиться к SMTP-серверу - проверьте адрес и порт'
+    if (code === 'EDNS') return 'SMTP-сервер не найден - проверьте адрес'
+    if (code === 'EENVELOPE') return 'Некорректный адрес отправителя или получателя'
+  }
+  return 'Не удалось отправить письмо. Проверьте настройки SMTP, логин и пароль'
 }
 
 export async function sendMail(account: MailAccount, mail: OutgoingMail): Promise<SentMail> {

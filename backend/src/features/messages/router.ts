@@ -8,8 +8,8 @@ import { db } from '../../db/index.js'
 import { mailFolders, mailMessages, mailAttachmentRefs, type MailMessage, type MailAttachmentRef } from '../../db/schema.js'
 import { requireAuth } from '../../middleware/auth.js'
 import { getOwnedAccount, getOwnedFolder, getOwnedMessage } from '../../lib/mailOwnership.js'
-import { openAttachmentStream, appendToSent, setMessageFlags, removeMessage } from '../../lib/imapConnection.js'
-import { sendMail } from '../../lib/mailSend.js'
+import { openAttachmentStream, appendToSent, setMessageFlags, removeMessage, localizeImapError } from '../../lib/imapConnection.js'
+import { sendMail, localizeSmtpError } from '../../lib/mailSend.js'
 
 const router = new Hono()
 router.use('*', requireAuth)
@@ -166,7 +166,7 @@ router.patch('/messages/:id', zValidator('json', updateFlagsSchema), async (c) =
     try {
       await setMessageFlags(account, folder.name, message.imapUid, { seen: body.flagsSeen, flagged: body.flagsFlagged })
     } catch (error) {
-      return c.json({ error: error instanceof Error ? error.message : 'Не удалось обновить письмо на сервере' }, 502)
+      return c.json({ error: localizeImapError(error) }, 502)
     }
   }
 
@@ -200,7 +200,7 @@ router.delete('/messages/:id', async (c) => {
     try {
       await removeMessage(account, folder.name, message.imapUid, destination)
     } catch (error) {
-      return c.json({ error: error instanceof Error ? error.message : 'Не удалось удалить письмо на сервере' }, 502)
+      return c.json({ error: localizeImapError(error) }, 502)
     }
   }
 
@@ -229,7 +229,7 @@ router.post('/accounts/:accountId/messages/send', zValidator('json', sendMessage
       subject: body.subject ?? '', bodyText: body.bodyText, inReplyTo: body.inReplyTo,
     })
   } catch (error) {
-    return c.json({ error: error instanceof Error ? error.message : 'Не удалось отправить письмо' }, 502)
+    return c.json({ error: localizeSmtpError(error) }, 502)
   }
 
   const sentFolder = db.select().from(mailFolders)

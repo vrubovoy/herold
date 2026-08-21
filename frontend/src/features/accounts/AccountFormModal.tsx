@@ -9,6 +9,14 @@ const SECURITY_OPTIONS: { value: MailSecurity; label: string }[] = [
   { value: 'none', label: 'Нет' },
 ]
 
+// Most providers pair a security mode with a conventional port -
+// used when unchecking "same as IMAP" to seed the now-visible SMTP
+// fields with something coherent instead of always defaulting to
+// STARTTLS/587 regardless of what the user picked for IMAP.
+const SMTP_PORT_FOR_SECURITY: Record<MailSecurity, string> = {
+  tls: '465', starttls: '587', none: '25',
+}
+
 interface FormState {
   label: string
   imapHost: string
@@ -77,6 +85,22 @@ export function AccountFormModal({ open, account, onClose, onSubmit, pending, er
     setForm((prev) => ({ ...prev, [key]: value }))
     // Any change invalidates a previous test result - it tested a
     // credential set that no longer matches what would actually be saved.
+    setTestState('idle')
+  }
+
+  // Unchecking "same as IMAP" reveals the SMTP fields - if they've never
+  // been touched yet (still blank), seed their security/port from the
+  // IMAP side's own current choice instead of leaving them at a fixed
+  // STARTTLS/587 default that may not match what was just picked for
+  // IMAP right above.
+  function handleSameAsImapChange(checked: boolean) {
+    setForm((prev) => {
+      if (checked || prev.smtpHost) return { ...prev, sameAsImap: checked }
+      return {
+        ...prev, sameAsImap: checked,
+        smtpSecurity: prev.imapSecurity, smtpPort: SMTP_PORT_FOR_SECURITY[prev.imapSecurity],
+      }
+    })
     setTestState('idle')
   }
 
@@ -207,7 +231,7 @@ export function AccountFormModal({ open, account, onClose, onSubmit, pending, er
           <input
             type="checkbox"
             checked={form.sameAsImap}
-            onChange={(e) => update('sameAsImap', e.target.checked)}
+            onChange={(e) => handleSameAsImapChange(e.target.checked)}
             disabled={pending}
           />
           Исходящая почта (SMTP) совпадает с IMAP

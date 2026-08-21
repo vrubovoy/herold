@@ -22,7 +22,11 @@ const { setMessageFlagsMock, removeMessageMock } = vi.hoisted(() => {
   ) => undefined)
   return { setMessageFlagsMock, removeMessageMock }
 })
-vi.mock('../lib/imapConnection.js', () => ({
+vi.mock('../lib/imapConnection.js', async (importOriginal) => ({
+  // localizeImapError is a pure text-translation function the route also
+  // imports from this module - kept real (not mocked) so the 502 paths
+  // below exercise its actual behavior instead of needing their own copy.
+  ...(await importOriginal<typeof import('../lib/imapConnection.js')>()),
   setMessageFlags: setMessageFlagsMock,
   removeMessage: removeMessageMock,
 }))
