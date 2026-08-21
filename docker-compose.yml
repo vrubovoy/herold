@@ -33,6 +33,11 @@ services:
       # required, not defaulted, same as the platform's HMAC secrets:
       # `openssl rand -base64 32`.
       HEROLD_CREDENTIAL_ENCRYPTION_KEY: ${HEROLD_CREDENTIAL_ENCRYPTION_KEY:?set HEROLD_CREDENTIAL_ENCRYPTION_KEY}
+      # How often the background sync worker (sync/worker.ts) polls
+      # every connected account's IMAP folders for new/changed messages.
+      # Defaults to 3 minutes in code if unset - only listed here for
+      # discoverability, not because a value is required.
+      HEROLD_SYNC_INTERVAL_MS: ${HEROLD_SYNC_INTERVAL_MS:-180000}
     volumes:
       - herold-data:/data
     networks:

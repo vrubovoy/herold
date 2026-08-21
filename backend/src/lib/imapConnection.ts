@@ -1,4 +1,6 @@
 import { ImapFlow } from 'imapflow'
+import type { MailAccount } from '../db/schema.js'
+import { decryptCredential } from './credentialCrypto.js'
 
 export interface ImapCredentials {
   host: string
@@ -46,5 +48,42 @@ export async function testImapConnection(credentials: ImapCredentials): Promise<
     // reached an authenticated state to log out of - close() is a
     // no-op-safe way to tear down the socket either way.
     client.close()
+  }
+}
+
+// Attachments are never mirrored locally (see Hof/ROADMAP.md's Herold
+// entry) - every download opens a fresh one-off IMAP connection,
+// fetches exactly the one BODYSTRUCTURE part the caller asked for, and
+// streams it straight through. The connection deliberately stays open
+// past this function's own return - the caller is handed a live
+// Readable still being fed by it, and closing here would cut that
+// stream off mid-flight. It's the returned `close()` that the caller
+// must invoke once the stream is fully drained (or errors).
+export async function openAttachmentStream(account: MailAccount, folderName: string, imapUid: number, partId: string) {
+  const client = new ImapFlow({
+    host: account.imapHost,
+    port: account.imapPort,
+    secure: account.imapSecurity === 'tls',
+    auth: { user: account.imapUsername, pass: decryptCredential(account.imapPasswordEncrypted) },
+    logger: false,
+    connectionTimeout: 20_000,
+    greetingTimeout: 20_000,
+  })
+
+  const close = () => { client.logout().catch(() => client.close()) }
+
+  await client.connect()
+  const lock = await client.getMailboxLock(folderName)
+  try {
+    const download = await client.download(imapUid, partId, { uid: true })
+    // Releasing the mailbox lock only frees this connection for a
+    // *different* command - it doesn't touch the already-in-flight
+    // FETCH response the returned stream is still reading from.
+    lock.release()
+    return { ...download, close }
+  } catch (error) {
+    lock.release()
+    close()
+    throw error
   }
 }

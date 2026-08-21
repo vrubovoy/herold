@@ -27,5 +27,13 @@ for (const file of migrationFiles) {
 export const db = drizzle(sqlite, { schema })
 
 export function cleanDb() {
+  // Explicit, children-first, even though every FK here cascades from
+  // `users` - relying on cascade alone would leave this silently
+  // dependent on foreign_keys actually being ON for whichever
+  // connection runs it, which is easy to lose track of in test setup.
+  sqlite.exec('DELETE FROM mail_attachment_refs')
+  sqlite.exec('DELETE FROM mail_messages')
+  sqlite.exec('DELETE FROM mail_folders')
+  sqlite.exec('DELETE FROM mail_accounts')
   sqlite.exec('DELETE FROM users')
 }
