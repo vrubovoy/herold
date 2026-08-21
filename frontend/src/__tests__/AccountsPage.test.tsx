@@ -174,7 +174,9 @@ describe('AccountsPage — create submits and refreshes', () => {
     await user.type(screen.getByLabelText('Логин'), 'user@example.com')
     await user.type(screen.getByLabelText('Пароль'), 'pw123456')
     await user.type(screen.getByLabelText('Имя отправителя'), 'User')
-    await user.type(screen.getByLabelText('Email отправителя'), 'user@example.com')
+    // Not typed separately - "Email отправителя" auto-follows the IMAP
+    // login for a new account (see AccountFormModal's own update()),
+    // asserted below via the submitted fromEmail value.
 
     const callsBefore = vi.mocked(getMailAccounts).mock.calls.length
     await user.click(screen.getByRole('button', { name: 'Сохранить' }))
@@ -196,6 +198,36 @@ describe('AccountsPage — create submits and refreshes', () => {
     // result being reflected; assert the refetch actually happened.
     await waitFor(() =>
       expect(vi.mocked(getMailAccounts).mock.calls.length).toBeGreaterThan(callsBefore),
+    )
+  })
+
+  it('does not overwrite a manually-entered "Email отправителя" when the IMAP login changes afterward', async () => {
+    const user = userEvent.setup()
+    vi.mocked(getMailAccounts).mockResolvedValue([])
+    vi.mocked(createMailAccount).mockResolvedValue(sampleAccount)
+    render(<AccountsPage />, { wrapper: createWrapper() })
+    await waitForLoadingToFinish()
+
+    await user.click(screen.getAllByRole('button', { name: /Подключить/i })[0])
+
+    await user.type(await screen.findByLabelText('Название'), 'Test Account')
+    await user.type(screen.getByLabelText('Сервер'), 'imap.example.com')
+    await user.type(screen.getByLabelText('Логин'), 'user@example.com')
+    // Diverge fromEmail from the login on purpose (e.g. a send-as alias) -
+    // cleared first since the login's own auto-sync already pre-filled it.
+    const fromEmailField = screen.getByLabelText('Email отправителя')
+    await user.clear(fromEmailField)
+    await user.type(fromEmailField, 'alias@example.com')
+    // Editing the login further must not clobber the now-manual value.
+    await user.type(screen.getByLabelText('Логин'), '.extra')
+    await user.type(screen.getByLabelText('Пароль'), 'pw123456')
+    await user.type(screen.getByLabelText('Имя отправителя'), 'User')
+
+    await user.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+    await waitFor(() => expect(createMailAccount).toHaveBeenCalledTimes(1))
+    expect(createMailAccount).toHaveBeenCalledWith(
+      expect.objectContaining({ fromEmail: 'alias@example.com' }),
     )
   })
 })

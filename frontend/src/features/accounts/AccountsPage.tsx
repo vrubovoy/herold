@@ -209,17 +209,11 @@ function AccountTile({ account, onOpen, onDelete }: {
         }}>
           {account.label}
         </div>
-        <div title={`${account.imapUsername} · ${account.imapHost}:${account.imapPort}`} style={{
-          fontSize: '0.8125rem', color: 'var(--text-muted)',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}>
+        <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', wordBreak: 'break-word' }}>
           {account.imapUsername} · {account.imapHost}:{account.imapPort} ({SECURITY_LABEL[account.imapSecurity]})
         </div>
         {account.syncState === 'error' && account.lastError && (
-          <div title={account.lastError} style={{
-            fontSize: '0.75rem', color: 'var(--danger)', marginTop: '0.25rem',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--danger)', marginTop: '0.25rem', wordBreak: 'break-word' }}>
             {account.lastError}
           </div>
         )}
