@@ -12,6 +12,25 @@ export interface ImapCredentials {
 
 export type TestConnectionResult = { ok: true } | { ok: false; error: string }
 
+// imapflow (and the underlying Node network/TLS stack) throws raw,
+// English, often cryptic protocol/library text ("Command failed",
+// "connect ECONNREFUSED ...") - never fit to show a user directly. Every
+// caller that surfaces a connection failure routes through this instead
+// of `error.message`, so the UI always shows a real Russian sentence.
+export function localizeImapError(error: unknown): string {
+  if (error && typeof error === 'object') {
+    if ('authenticationFailed' in error && (error as { authenticationFailed?: boolean }).authenticationFailed) {
+      return 'Неверный логин или пароль'
+    }
+    const code = 'code' in error ? (error as { code?: string }).code : undefined
+    if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'Сервер не найден - проверьте адрес'
+    if (code === 'ECONNREFUSED') return 'Сервер отклонил подключение - проверьте адрес и порт'
+    if (code === 'ETIMEDOUT' || code === 'ESOCKETTIMEDOUT') return 'Сервер не отвечает - проверьте адрес, порт и шифрование'
+    if (code === 'ECONNRESET' || code === 'EPROTO') return 'Соединение разорвано - проверьте порт и тип шифрования'
+  }
+  return 'Не удалось подключиться. Проверьте адрес сервера, логин и пароль'
+}
+
 // imapflow's own `secure` option only distinguishes implicit TLS (true)
 // from "plain, upgrading to STARTTLS if the server offers it" (false) -
 // there's no separate flag to force truly-plaintext-only. 'starttls' and
@@ -42,7 +61,7 @@ export async function testImapConnection(credentials: ImapCredentials): Promise<
     await client.connect()
     return { ok: true }
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : 'Не удалось подключиться' }
+    return { ok: false, error: localizeImapError(error) }
   } finally {
     // verifyOnly already logs out on success; a failed connect() never
     // reached an authenticated state to log out of - close() is a

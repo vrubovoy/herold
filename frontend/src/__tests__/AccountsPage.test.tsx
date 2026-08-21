@@ -222,8 +222,10 @@ describe('AccountsPage — edit opens pre-filled', () => {
     render(<AccountsPage />, { wrapper: createWrapper() })
     await screen.findByText(sampleAccount.label)
 
-    const editButton = screen.getByRole('button', { name: /Изменить|Редактир/i })
-    await user.click(editButton)
+    // The whole account card opens the edit form - no separate edit
+    // button - so clicking the card's own label text (inside it) is the
+    // way to trigger it.
+    await user.click(screen.getByText(sampleAccount.label))
 
     expect(await screen.findByDisplayValue(sampleAccount.label)).toBeInTheDocument()
     expect(screen.getByDisplayValue(sampleAccount.imapHost)).toBeInTheDocument()

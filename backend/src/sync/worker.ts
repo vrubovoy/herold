@@ -5,6 +5,7 @@ import { createId } from '@paralleldrive/cuid2'
 import { db } from '../db/index.js'
 import { mailAccounts, mailFolders, mailMessages, mailAttachmentRefs, type MailAccount, type MailFolder } from '../db/schema.js'
 import { decryptCredential } from '../lib/credentialCrypto.js'
+import { localizeImapError } from '../lib/imapConnection.js'
 import { collectAttachmentParts } from './attachmentParts.js'
 
 // Periodic pull, not push - matches the platform's other background
@@ -178,7 +179,7 @@ async function syncAccount(account: MailAccount) {
     db.update(mailAccounts).set({
       syncState: 'error',
       lastSyncedAt: new Date(),
-      lastError: error instanceof Error ? error.message : 'Не удалось синхронизировать почту',
+      lastError: localizeImapError(error),
     }).where(eq(mailAccounts.id, account.id)).run()
   } finally {
     try {

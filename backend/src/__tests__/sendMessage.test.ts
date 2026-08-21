@@ -16,7 +16,13 @@ const { sendMailMock, appendToSentMock } = vi.hoisted(() => {
   const appendToSentMock = vi.fn(async (_account: unknown, _folderName: unknown, _raw: unknown) => undefined)
   return { sendMailMock, appendToSentMock }
 })
-vi.mock('../lib/mailSend.js', () => ({ sendMail: sendMailMock }))
+vi.mock('../lib/mailSend.js', async (importOriginal) => ({
+  // localizeSmtpError is a pure text-translation function the route also
+  // imports from this module - kept real (not mocked) so the 502 path
+  // below exercises its actual behavior.
+  ...(await importOriginal<typeof import('../lib/mailSend.js')>()),
+  sendMail: sendMailMock,
+}))
 vi.mock('../lib/imapConnection.js', () => ({ appendToSent: appendToSentMock }))
 
 import { sqlite, cleanDb } from './helpers/db.js'

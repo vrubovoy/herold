@@ -362,13 +362,18 @@ describe('POST /accounts/test-connection', () => {
   })
 
   it('returns 200 { ok: false, error } (not a 4xx/5xx) when the mocked ImapFlow connect() rejects', async () => {
+    // The raw underlying error text is never surfaced to the user (it's
+    // English/library-specific, e.g. "Command failed") - the route
+    // translates it to a fixed Russian message instead. See
+    // lib/imapConnection.ts's own localizeImapError.
     connectMock.mockRejectedValueOnce(new Error('Invalid credentials'))
     const res = await post('/accounts/test-connection', testConnBody, H1)
     expect(res.status).toBe(200)
     const body = (await res.json()) as { ok: boolean; error?: string }
     expect(body.ok).toBe(false)
     expect(typeof body.error).toBe('string')
-    expect(body.error).toContain('Invalid credentials')
+    expect(body.error).not.toContain('Invalid credentials')
+    expect(body.error).toMatch(/[а-яё]/i)
   })
 
   it.each([
@@ -430,6 +435,7 @@ describe('POST /accounts/:id/test-connection', () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as { ok: boolean; error?: string }
     expect(body.ok).toBe(false)
-    expect(body.error).toContain('Connection timed out')
+    expect(typeof body.error).toBe('string')
+    expect((body.error ?? '').length).toBeGreaterThan(0)
   })
 })
