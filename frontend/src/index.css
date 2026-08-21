@@ -1,0 +1,122 @@
+@import "tailwindcss";
+@import "@zudar107/schloss-ui/tokens.css";
+
+/* Herold's own brand accent, layered on top of the shared tokens above -
+ * see @zudar107/schloss-ui's README for the per-service accent contract.
+ * Deep magenta/fuchsia, distinct from schloss (violet), schlussel/glocke
+ * (blue), kuvert (teal), tafel (amber), zettel (pink/rose), and schrank
+ * (brown), and clear of the shared --success/--danger/--warning/--info
+ * semantic tokens too - the one open gap left on the platform's color
+ * wheel, and a nod to "murrey", the real heraldic tincture, fitting a
+ * herald mascot. --sidebar-accent isn't part of the shared tokens, so
+ * it's set here too, matching --accent. */
+@layer base {
+  :root {
+    --accent:         #c026d3;
+    --accent-hover:   #a21caf;
+    --accent-muted:   #fae8ff;
+    --accent-text:    #86198f;
+    --sidebar-accent: #c026d3;
+  }
+}
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body, #root { height: 100%; margin: 0; }
+  body {
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: var(--accent); color: var(--text-inverted); }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 99px; }
+}
+
+@layer components {
+  .card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+  }
+  .card-elevated {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+  }
+  .btn-primary {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    background: var(--accent); color: var(--text-inverted);
+    border-radius: var(--radius-md); padding: 0.5rem 1rem;
+    font-weight: 500; font-size: 0.875rem; line-height: 1.25rem;
+    transition: background 150ms, transform 100ms;
+    cursor: pointer; border: none; outline: none; text-decoration: none;
+  }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-primary:active { transform: scale(0.98); }
+
+  .btn-ghost {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    background: transparent; color: var(--text-secondary);
+    border-radius: var(--radius-md); padding: 0.5rem 1rem;
+    font-weight: 500; font-size: 0.875rem; line-height: 1.25rem;
+    transition: background 150ms, color 150ms;
+    cursor: pointer; border: none; outline: none; text-decoration: none;
+  }
+  .btn-ghost:hover { background: var(--bg-base); color: var(--text-primary); }
+
+  .btn-danger {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    background: var(--danger-muted); color: var(--danger);
+    border-radius: var(--radius-md); padding: 0.5rem 1rem;
+    font-weight: 500; font-size: 0.875rem;
+    transition: background 150ms; cursor: pointer; border: none; outline: none;
+  }
+  .btn-danger:hover { background: var(--danger); color: var(--text-inverted); }
+
+  .input {
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: var(--radius-md); padding: 0.5rem 0.75rem;
+    font-size: 0.875rem; color: var(--text-primary); outline: none;
+    width: 100%; transition: border-color 150ms, box-shadow 150ms;
+    font-family: var(--font-sans);
+  }
+  .input::placeholder { color: var(--text-muted); }
+  .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-muted); }
+
+  .label {
+    display: block; font-size: 0.8125rem; font-weight: 500;
+    color: var(--text-secondary); margin-bottom: 0.375rem;
+  }
+}
+
+@layer utilities {
+  .hidden-mobile { display: flex !important; }
+  .show-mobile   { display: none  !important; }
+
+  @media (max-width: 640px) {
+    .hidden-mobile { display: none !important; }
+    .show-mobile   { display: flex !important; }
+  }
+}
+
+/* HeroIllustration's wax seal plays a brief "stamping down" settle on
+ * mount - same scale-from-center technique as schrank's door-seam-close
+ * (scaleY-from-the-hinge). Starts larger and faded (not yet pressed
+ * down) and settles to its resting size, with a small overshoot before
+ * settling, like a real seal being pressed and released. */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes herold-seal-stamp {
+    0%   { transform: scale(1.4); opacity: 0; }
+    60%  { transform: scale(0.92); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  .herold-seal-stamp {
+    transform-origin: 50px 93px;
+    animation: herold-seal-stamp 500ms ease-out;
+  }
+}

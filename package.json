@@ -1,0 +1,15 @@
+{
+  "name": "herold",
+  "version": "0.1.0",
+  "description": "Herold — webmail client for external IMAP/SMTP accounts, for the Hof platform",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "dev:backend": "pnpm --filter backend dev",
+    "dev:frontend": "pnpm --filter frontend dev",
+    "build": "pnpm --filter backend build && pnpm --filter frontend build",
+    "db:generate": "pnpm --filter backend db:generate",
+    "db:migrate": "pnpm --filter backend db:migrate"
+  }
+}
