@@ -48,10 +48,13 @@ This repo is a pnpm workspace with two packages:
 
 ## Status
 
-Bootstrapping: platform wiring (auth, CORS, the shared header/sidebar/
-notification bell, `/health`+`/ready`, CI, Docker, the tor gateway
-entry) is in place. Mail account management, IMAP/SMTP sync, and
-sending are not implemented yet.
+Platform wiring (auth, CORS, the shared header/sidebar/notification
+bell, `/health`+`/ready`, CI, Docker, the tor gateway entry) plus mail
+account management: connect/edit/disconnect an external IMAP/SMTP
+account, with a "test connection" round-trip against the real server
+before saving. Passwords are encrypted at rest (AES-256-GCM). IMAP/SMTP
+sync and sending are not implemented yet - a connected account just
+sits there for now.
 
 ## API
 
@@ -60,9 +63,16 @@ sending are not implemented yet.
 | `GET` | `/health` | Liveness check |
 | `GET` | `/ready` | Readiness check |
 | `GET` | `/users/me` | The caller's own profile (auto-provisioned from their Schlüssel token) |
+| `GET` | `/accounts` | The caller's connected mail accounts |
+| `POST` | `/accounts` | Connect a new mail account |
+| `GET` | `/accounts/:id` | A single mail account |
+| `PATCH` | `/accounts/:id` | Update a mail account (a blank password field leaves the stored credential unchanged) |
+| `DELETE` | `/accounts/:id` | Disconnect a mail account |
+| `POST` | `/accounts/test-connection` | Verify IMAP credentials (submitted directly, not yet saved) |
+| `POST` | `/accounts/:id/test-connection` | Re-verify a saved account's stored IMAP credential |
 
-Grows alongside mail account management, sync, and sending in later
-stages — see [`Hof/ROADMAP.md`](https://github.com/zudaR107/Hof/blob/main/ROADMAP.md).
+Grows alongside IMAP/SMTP sync and sending in later stages — see
+[`Hof/ROADMAP.md`](https://github.com/zudaR107/Hof/blob/main/ROADMAP.md).
 
 ## Local development
 
@@ -96,6 +106,7 @@ exposes variables prefixed with `VITE_` to frontend code.
 | `JWT_ISSUER` | Must match Schlüssel's own issuer, or every token gets rejected |
 | `ALLOWED_ORIGINS` | Comma-separated CORS allowlist when running the backend directly |
 | `HEROLD_ALLOWED_ORIGINS` | CORS allowlist passed to the backend by Docker Compose |
+| `HEROLD_CREDENTIAL_ENCRYPTION_KEY` | Encrypts stored IMAP/SMTP passwords at rest - a 32-byte base64 key, e.g. `openssl rand -base64 32` |
 | `SCHLUSSEL_WEB_URL` | Schlüssel browser URL baked into the frontend by Docker Compose |
 | `SCHLOSS_URL` | Schloss home URL baked into the frontend by Docker Compose |
 | `GLOCKE_URL` | Glocke URL baked into the frontend by Docker Compose (the shared notification bell) |

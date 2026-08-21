@@ -8,6 +8,13 @@
       "when": 1787295437000,
       "tag": "0000_yielding_freak",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1787297666280,
+      "tag": "0001_slimy_living_lightning",
+      "breakpoints": true
     }
   ]
 }

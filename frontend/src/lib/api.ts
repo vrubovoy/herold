@@ -29,3 +29,79 @@ export const api = {
   patch: apiClient.patch,
   delete: apiClient.delete,
 }
+
+export type MailSecurity = 'tls' | 'starttls' | 'none'
+
+export interface MailAccount {
+  id: string
+  label: string
+  imapHost: string
+  imapPort: number
+  imapSecurity: MailSecurity
+  imapUsername: string
+  smtpHost: string
+  smtpPort: number
+  smtpSecurity: MailSecurity
+  smtpUsername: string
+  fromName: string
+  fromEmail: string
+  syncState: 'pending' | 'ok' | 'error'
+  lastSyncedAt: string | null
+  lastError: string | null
+  createdAt: string
+}
+
+// Never round-trips through MailAccount - the backend never returns a
+// password, encrypted or otherwise (see the backend's own mailAccountJson).
+export interface MailAccountFields {
+  label: string
+  imapHost: string
+  imapPort: number
+  imapSecurity: MailSecurity
+  imapUsername: string
+  imapPassword: string
+  smtpHost: string
+  smtpPort: number
+  smtpSecurity: MailSecurity
+  smtpUsername: string
+  smtpPassword: string
+  fromName: string
+  fromEmail: string
+}
+
+export type MailAccountUpdate = Partial<MailAccountFields>
+
+export type TestConnectionResult = { ok: true } | { ok: false; error: string }
+
+export function getMailAccounts(): Promise<MailAccount[]> {
+  return api.get('/accounts')
+}
+
+export function createMailAccount(input: MailAccountFields): Promise<MailAccount> {
+  return api.post('/accounts', input)
+}
+
+export function updateMailAccount(id: string, input: MailAccountUpdate): Promise<MailAccount> {
+  return api.patch(`/accounts/${encodeURIComponent(id)}`, input)
+}
+
+export function deleteMailAccount(id: string): Promise<{ ok: true }> {
+  return api.delete(`/accounts/${encodeURIComponent(id)}`)
+}
+
+export function testImapConnection(input: {
+  imapHost: string
+  imapPort: number
+  imapSecurity: MailSecurity
+  imapUsername: string
+  imapPassword: string
+}): Promise<TestConnectionResult> {
+  return api.post('/accounts/test-connection', input)
+}
+
+// For the edit form's "Test connection" when the password field was left
+// blank ("keep existing") - the frontend never has that plaintext to
+// send, so the backend decrypts and tests the already-stored one instead.
+export function testSavedMailAccountConnection(id: string): Promise<TestConnectionResult> {
+  return api.post(`/accounts/${encodeURIComponent(id)}/test-connection`, {})
+}
