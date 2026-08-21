@@ -115,19 +115,18 @@
   }
 }
 
-/* HeroIllustration's wax seal plays a brief "stamping down" settle on
- * mount - same scale-from-center technique as schrank's door-seam-close
- * (scaleY-from-the-hinge). Starts larger and faded (not yet pressed
- * down) and settles to its resting size, with a small overshoot before
- * settling, like a real seal being pressed and released. */
+/* HeroIllustration's paper airplane swoops in and settles on mount -
+ * the same "arrives and settles, with a small overshoot" shape every
+ * sibling illustration's own flourish uses (schrank's door-seam-close,
+ * kuvert's envelope-flap-open), here reading as the message just having
+ * been dispatched and landing in place. */
 @media (prefers-reduced-motion: no-preference) {
-  @keyframes herold-seal-stamp {
-    0%   { transform: scale(1.4); opacity: 0; }
-    60%  { transform: scale(0.92); opacity: 1; }
-    100% { transform: scale(1); opacity: 1; }
+  @keyframes herold-plane-fly-in {
+    0%   { transform: translate(-14px, 12px) scale(0.85); opacity: 0; }
+    60%  { transform: translate(3px, -3px) scale(1.04); opacity: 1; }
+    100% { transform: translate(0, 0) scale(1); opacity: 1; }
   }
-  .herold-seal-stamp {
-    transform-origin: 50px 93px;
-    animation: herold-seal-stamp 500ms ease-out;
+  .herold-plane-fly-in {
+    animation: herold-plane-fly-in 500ms ease-out;
   }
 }
