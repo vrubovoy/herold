@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 // Every timestamp column here uses `mode: 'timestamp_ms'`, not the more
 // common `mode: 'timestamp'` - the latter stores epoch *seconds*
@@ -60,5 +60,82 @@ export const mailAccounts = sqliteTable('mail_accounts', {
 
 export type MailAccount = typeof mailAccounts.$inferSelect
 
-// Mail folder/message tables land in a later stage - see
-// Hof/ROADMAP.md's Herold entry for the staged rollout.
+// ── Mail folders ─────────────────────────────────────────────────────
+// Mirrors an account's IMAP folder list. uidValidity + lastSeenUid are
+// the standard IMAP bookkeeping pair for incremental sync (see
+// sync/worker.ts) - a changed uidValidity means the server reset UID
+// numbering for this folder, and every mirrored message in it is
+// meaningless and gets wiped before re-syncing from scratch.
+export const mailFolders = sqliteTable('mail_folders', {
+  id: text('id').primaryKey(),
+  accountId: text('account_id').notNull().references(() => mailAccounts.id, { onDelete: 'cascade' }),
+  // The IMAP mailbox path as the server reports it (e.g. "INBOX",
+  // "Sent Mail") - matched against on every sync pass to find this
+  // folder's existing row again. A folder renamed on the server is
+  // therefore currently seen as a new folder, not a rename of this one;
+  // a known limitation, not handled in this stage.
+  name: text('name').notNull(),
+  specialUse: text('special_use', { enum: ['inbox', 'sent', 'drafts', 'trash', 'junk'] }),
+  uidValidity: integer('uid_validity').notNull(),
+  lastSeenUid: integer('last_seen_uid').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+}, (table) => [
+  index('mail_folders_account_idx').on(table.accountId),
+  uniqueIndex('mail_folders_account_name_idx').on(table.accountId, table.name),
+])
+
+export type MailFolder = typeof mailFolders.$inferSelect
+
+// ── Mail messages ────────────────────────────────────────────────────
+// Mirrors headers + plain-text body only (see Hof/ROADMAP.md's Herold
+// entry for why) - never raw HTML, never attachment bytes (those stay
+// on the IMAP server, streamed on demand - see mailAttachmentRefs).
+// toAddresses is a JSON-encoded MessageAddressObject[] (no native array
+// column type in SQLite); parsed back out in features/messages/router.ts.
+export const mailMessages = sqliteTable('mail_messages', {
+  id: text('id').primaryKey(),
+  folderId: text('folder_id').notNull().references(() => mailFolders.id, { onDelete: 'cascade' }),
+  imapUid: integer('imap_uid').notNull(),
+  // RFC822 Message-ID header - reserved for threading/dedupe in a later
+  // stage, not used yet.
+  messageId: text('message_id'),
+  subject: text('subject'),
+  fromAddress: text('from_address'),
+  fromName: text('from_name'),
+  toAddresses: text('to_addresses').notNull().default('[]'),
+  date: integer('date', { mode: 'timestamp_ms' }),
+  snippet: text('snippet').notNull().default(''),
+  bodyText: text('body_text').notNull().default(''),
+  flagsSeen: integer('flags_seen', { mode: 'boolean' }).notNull().default(false),
+  flagsFlagged: integer('flags_flagged', { mode: 'boolean' }).notNull().default(false),
+  flagsDeleted: integer('flags_deleted', { mode: 'boolean' }).notNull().default(false),
+  hasAttachments: integer('has_attachments', { mode: 'boolean' }).notNull().default(false),
+  sizeBytes: integer('size_bytes').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+}, (table) => [
+  index('mail_messages_folder_idx').on(table.folderId),
+  // Guards against double-mirroring the same message if a sync pass is
+  // ever retried over a UID range it already inserted.
+  uniqueIndex('mail_messages_folder_uid_idx').on(table.folderId, table.imapUid),
+])
+
+export type MailMessage = typeof mailMessages.$inferSelect
+
+// ── Mail attachment references ──────────────────────────────────────
+// Metadata only, never bytes - partId is the IMAP BODYSTRUCTURE part
+// number (see MessageStructureObject.part in imapflow's own types),
+// used internally to re-fetch this exact part live from IMAP on demand
+// (GET /messages/:id/attachments/:attachmentId) - never exposed to the
+// client directly; the client only ever sees this row's own `id`.
+export const mailAttachmentRefs = sqliteTable('mail_attachment_refs', {
+  id: text('id').primaryKey(),
+  messageId: text('message_id').notNull().references(() => mailMessages.id, { onDelete: 'cascade' }),
+  filename: text('filename').notNull(),
+  mimeType: text('mime_type').notNull(),
+  sizeBytes: integer('size_bytes').notNull(),
+  partId: text('part_id').notNull(),
+}, (table) => [
+  index('mail_attachment_refs_message_idx').on(table.messageId),
+])
+
+export type MailAttachmentRef = typeof mailAttachmentRefs.$inferSelect

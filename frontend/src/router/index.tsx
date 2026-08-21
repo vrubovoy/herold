@@ -4,6 +4,7 @@ import { NotFoundPage } from '@zudar107/schloss-ui'
 import { Layout } from '../components/Layout'
 import { HeroIllustration } from '../components/HeroIllustration'
 import { AccountsPage } from '../features/accounts/AccountsPage'
+import { MailPage } from '../features/mail/MailPage'
 import { DocsPage } from '../features/docs/DocsPage'
 import { HelpPage } from '../features/help/HelpPage'
 import { AuthCallbackPage } from '../features/auth/AuthCallbackPage'
@@ -37,14 +38,16 @@ const protectedLayout = createRoute({
   component: () => <Layout><Outlet /></Layout>,
 })
 
-// Redirects rather than rendering AccountsPage directly - once Stage 3
-// adds the actual mail UI, this becomes the real inbox route instead,
-// with AccountsPage staying reachable at its own settings-style URL
-// without having to move.
 const indexRoute = createRoute({
   getParentRoute: () => protectedLayout,
   path: '/',
-  beforeLoad: () => { throw redirect({ to: '/accounts' }) },
+  beforeLoad: () => { throw redirect({ to: '/mail' }) },
+})
+
+const mailRoute = createRoute({
+  getParentRoute: () => protectedLayout,
+  path: '/mail',
+  component: MailPage,
 })
 
 const accountsRoute = createRoute({
@@ -72,6 +75,7 @@ const routeTree = rootRoute.addChildren([
   authCallbackRoute,
   protectedLayout.addChildren([
     indexRoute,
+    mailRoute,
     accountsRoute,
     docsRoute,
     helpRoute,

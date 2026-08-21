@@ -48,13 +48,14 @@ This repo is a pnpm workspace with two packages:
 
 ## Status
 
-Platform wiring (auth, CORS, the shared header/sidebar/notification
-bell, `/health`+`/ready`, CI, Docker, the tor gateway entry) plus mail
-account management: connect/edit/disconnect an external IMAP/SMTP
-account, with a "test connection" round-trip against the real server
-before saving. Passwords are encrypted at rest (AES-256-GCM). IMAP/SMTP
-sync and sending are not implemented yet - a connected account just
-sits there for now.
+Platform wiring, mail account management (connect/edit/disconnect,
+"test connection" before saving, passwords encrypted at rest), and
+read-only IMAP sync: a background worker mirrors every connected
+account's folders and messages (headers + plain-text body, never raw
+HTML or attachment bytes) into the local database on a timer, and the
+UI reads that mirror - folder list, message list, message detail, with
+attachments streamed live from IMAP on demand rather than stored.
+Composing and sending mail are not implemented yet.
 
 ## API
 
@@ -70,8 +71,12 @@ sits there for now.
 | `DELETE` | `/accounts/:id` | Disconnect a mail account |
 | `POST` | `/accounts/test-connection` | Verify IMAP credentials (submitted directly, not yet saved) |
 | `POST` | `/accounts/:id/test-connection` | Re-verify a saved account's stored IMAP credential |
+| `GET` | `/accounts/:accountId/folders` | An account's mirrored IMAP folders |
+| `GET` | `/folders/:folderId/messages` | A folder's mirrored messages, newest first, paginated (`limit`/`offset`) |
+| `GET` | `/messages/:id` | A single message in full (headers + plain-text body + attachment list) |
+| `GET` | `/messages/:id/attachments/:attachmentId` | Streams an attachment's bytes live from IMAP - never stored locally |
 
-Grows alongside IMAP/SMTP sync and sending in later stages — see
+Grows alongside composing/sending in a later stage — see
 [`Hof/ROADMAP.md`](https://github.com/zudaR107/Hof/blob/main/ROADMAP.md).
 
 ## Local development
@@ -107,6 +112,7 @@ exposes variables prefixed with `VITE_` to frontend code.
 | `ALLOWED_ORIGINS` | Comma-separated CORS allowlist when running the backend directly |
 | `HEROLD_ALLOWED_ORIGINS` | CORS allowlist passed to the backend by Docker Compose |
 | `HEROLD_CREDENTIAL_ENCRYPTION_KEY` | Encrypts stored IMAP/SMTP passwords at rest - a 32-byte base64 key, e.g. `openssl rand -base64 32` |
+| `HEROLD_SYNC_INTERVAL_MS` | How often the background sync worker polls connected accounts for new mail (default 180000 = 3 minutes) |
 | `SCHLUSSEL_WEB_URL` | Schlüssel browser URL baked into the frontend by Docker Compose |
 | `SCHLOSS_URL` | Schloss home URL baked into the frontend by Docker Compose |
 | `GLOCKE_URL` | Glocke URL baked into the frontend by Docker Compose (the shared notification bell) |

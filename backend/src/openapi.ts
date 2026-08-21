@@ -138,6 +138,83 @@ registry.registerPath({
   },
 })
 
+const mailFolderResponseSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  specialUse: z.enum(['inbox', 'sent', 'drafts', 'trash', 'junk']).nullable(),
+  createdAt: z.iso.datetime(),
+})
+const mailMessageSummarySchema = z.object({
+  id: z.string(),
+  subject: z.string().nullable(),
+  fromAddress: z.string().nullable(),
+  fromName: z.string().nullable(),
+  date: z.iso.datetime().nullable(),
+  snippet: z.string(),
+  flagsSeen: z.boolean(),
+  flagsFlagged: z.boolean(),
+  hasAttachments: z.boolean(),
+})
+const mailAddressSchema = z.object({ name: z.string().optional(), address: z.string().optional() })
+const mailAttachmentSchema = z.object({ id: z.string(), filename: z.string(), mimeType: z.string(), sizeBytes: z.number().int() })
+const mailMessageDetailSchema = z.object({
+  id: z.string(),
+  subject: z.string().nullable(),
+  fromAddress: z.string().nullable(),
+  fromName: z.string().nullable(),
+  toAddresses: z.array(mailAddressSchema),
+  date: z.iso.datetime().nullable(),
+  bodyText: z.string(),
+  flagsSeen: z.boolean(),
+  flagsFlagged: z.boolean(),
+  attachments: z.array(mailAttachmentSchema),
+  createdAt: z.iso.datetime(),
+})
+
+registry.registerPath({
+  method: 'get', path: '/accounts/{accountId}/folders', tags: ['mail'],
+  summary: "List an account's mirrored IMAP folders", security: BEARER,
+  request: { params: z.object({ accountId: z.string() }) },
+  responses: {
+    200: { description: 'Folders', content: { 'application/json': { schema: z.array(mailFolderResponseSchema) } } },
+    404: { description: 'Not found', content: { 'application/json': { schema: errorResponseSchema } } },
+  },
+})
+registry.registerPath({
+  method: 'get', path: '/folders/{folderId}/messages', tags: ['mail'],
+  summary: 'List a folder\'s mirrored messages, newest first', security: BEARER,
+  request: {
+    params: z.object({ folderId: z.string() }),
+    query: z.object({ limit: z.coerce.number().int().min(1).max(200).optional(), offset: z.coerce.number().int().min(0).optional() }),
+  },
+  responses: {
+    200: {
+      description: 'A page of messages plus the total count in this folder',
+      content: { 'application/json': { schema: z.object({ messages: z.array(mailMessageSummarySchema), total: z.number().int() }) } },
+    },
+    404: { description: 'Not found', content: { 'application/json': { schema: errorResponseSchema } } },
+  },
+})
+registry.registerPath({
+  method: 'get', path: '/messages/{id}', tags: ['mail'], summary: 'Get a single message in full', security: BEARER,
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: { description: 'Message detail', content: { 'application/json': { schema: mailMessageDetailSchema } } },
+    404: { description: 'Not found', content: { 'application/json': { schema: errorResponseSchema } } },
+  },
+})
+registry.registerPath({
+  method: 'get', path: '/messages/{id}/attachments/{attachmentId}', tags: ['mail'],
+  summary: 'Stream an attachment', security: BEARER,
+  description: 'Never mirrored locally - opens a fresh IMAP connection per request and streams the bytes live.',
+  request: { params: z.object({ id: z.string(), attachmentId: z.string() }) },
+  responses: {
+    200: { description: 'Raw attachment bytes, with the stored Content-Type/filename' },
+    404: { description: 'Not found', content: { 'application/json': { schema: errorResponseSchema } } },
+    502: { description: 'Could not fetch the attachment from the IMAP server', content: { 'application/json': { schema: errorResponseSchema } } },
+  },
+})
+
 export const openApiDocument = new OpenApiGeneratorV3(registry.definitions).generateDocument({
   openapi: '3.0.0',
   info: { title: 'Herold API', version: '0.1.0' },

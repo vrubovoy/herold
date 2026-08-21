@@ -1,13 +1,14 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { eq, and, desc } from 'drizzle-orm'
+import { eq, desc } from 'drizzle-orm'
 import { createId } from '@paralleldrive/cuid2'
 import { db } from '../../db/index.js'
 import { mailAccounts, type MailAccount } from '../../db/schema.js'
 import { requireAuth } from '../../middleware/auth.js'
 import { decryptCredential, encryptCredential } from '../../lib/credentialCrypto.js'
 import { testImapConnection } from '../../lib/imapConnection.js'
+import { getOwnedAccount } from '../../lib/mailOwnership.js'
 
 const router = new Hono()
 router.use('*', requireAuth)
@@ -65,12 +66,6 @@ function mailAccountJson(account: MailAccount) {
     lastError: account.lastError,
     createdAt: account.createdAt,
   }
-}
-
-function getOwnedAccount(userId: string, id: string): MailAccount | undefined {
-  return db.select().from(mailAccounts)
-    .where(and(eq(mailAccounts.id, id), eq(mailAccounts.userId, userId)))
-    .get()
 }
 
 router.get('/', (c) => {

@@ -32,14 +32,27 @@ export function HelpPage() {
         </p>
       </div>
 
+      <div className="card" style={{ padding: '1.5rem', marginBottom: '1.5rem' }}>
+        <h2 style={{ margin: '0 0 0.5rem', fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+          Просмотр почты
+        </h2>
+        <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.8125rem', lineHeight: 1.6 }}>
+          Раздел «Почта» показывает папки подключённого аккаунта и
+          письма в них. Новые письма подтягиваются автоматически на
+          фоне — раз в несколько минут, без необходимости обновлять
+          страницу. Вложения не хранятся в Herold: они скачиваются
+          напрямую с почтового сервера в момент, когда вы открываете
+          письмо или нажимаете на вложение.
+        </p>
+      </div>
+
       <div className="card" style={{ padding: '1.5rem' }}>
         <h2 style={{ margin: '0 0 0.5rem', fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)' }}>
           Сервис ещё строится
         </h2>
         <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.8125rem', lineHeight: 1.6 }}>
-          Пока можно только подключать и настраивать аккаунты. Просмотр
-          писем, синхронизация и отправка почты появятся в следующих
-          обновлениях.
+          Пока можно подключать аккаунты и читать почту. Написание и
+          отправка писем появятся в одном из следующих обновлений.
         </p>
       </div>
     </div>

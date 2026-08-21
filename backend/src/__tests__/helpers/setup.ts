@@ -2,6 +2,8 @@ import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { usersRouter } from '../../features/users/router.js'
 import { accountsRouter } from '../../features/accounts/router.js'
+import { foldersRouter } from '../../features/folders/router.js'
+import { messagesRouter } from '../../features/messages/router.js'
 import { requireAuth, requireAdmin } from '../../middleware/auth.js'
 import { openApiDocument } from '../../openapi.js'
 
@@ -34,5 +36,7 @@ export function createTestApp() {
   app.get('/openapi.json', requireAuth, requireAdmin, (c) => c.json(openApiDocument))
   app.route('/users', usersRouter)
   app.route('/accounts', accountsRouter)
+  app.route('/', foldersRouter)
+  app.route('/', messagesRouter)
   return app
 }

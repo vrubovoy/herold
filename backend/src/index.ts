@@ -9,8 +9,11 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 import { db } from './db/index.js'
 import { usersRouter } from './features/users/router.js'
 import { accountsRouter } from './features/accounts/router.js'
+import { foldersRouter } from './features/folders/router.js'
+import { messagesRouter } from './features/messages/router.js'
 import { requireAuth, requireAdmin } from './middleware/auth.js'
 import { openApiDocument } from './openapi.js'
+import { startMailSyncWorker } from './sync/worker.js'
 
 // Resolved relative to this file so it works both in dev (src/index.ts,
 // migrations at src/db/migrations) and in the compiled build
@@ -42,18 +45,28 @@ app.get('/openapi.json', requireAuth, requireAdmin, (c) => c.json(openApiDocumen
 
 app.route('/users', usersRouter)
 app.route('/accounts', accountsRouter)
+// Both mounted at root, not '/accounts' or '/folders' - their own
+// internal routes already spell out the full path (e.g.
+// '/accounts/:accountId/folders', '/folders/:folderId/messages')
+// since a folder/message's URL shape isn't a strict sub-resource of
+// exactly one prefix the way accounts' own CRUD is.
+app.route('/', foldersRouter)
+app.route('/', messagesRouter)
 
 const PORT = Number(process.env['PORT'] ?? 3006)
 const server = serve({ fetch: app.fetch, port: PORT }, () => {
   console.log(`[Herold API] Running on http://localhost:${PORT}`)
 })
 
+const mailSyncWorker = startMailSyncWorker()
+
 let shutdownPromise: Promise<void> | undefined
 function shutdown(): Promise<void> {
   if (shutdownPromise) return shutdownPromise
-  shutdownPromise = new Promise<void>((resolve, reject) => {
+  const httpStopped = new Promise<void>((resolve, reject) => {
     server.close((error) => error ? reject(error) : resolve())
   })
+  shutdownPromise = Promise.all([httpStopped, mailSyncWorker.stop()]).then(() => undefined)
   return shutdownPromise
 }
 process.once('SIGINT', () => shutdown())
