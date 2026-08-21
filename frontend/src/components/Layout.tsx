@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useLocation } from '@tanstack/react-router'
-import { FileCode2, HelpCircle, Home, Inbox } from 'lucide-react'
+import { FileCode2, HelpCircle, Inbox } from 'lucide-react'
 import { Toast, Sidebar, type SidebarLinkRenderProps } from '@zudar107/schloss-ui'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
@@ -11,8 +11,8 @@ import { Header } from './Header'
 const SIDEBAR_WIDTH_STORAGE_KEY = 'herold-sidebar-width'
 
 const NAV_ITEMS = [
-  { to: '/',     icon: <Home size={18} />,       label: 'Главная' },
-  { to: '/help', icon: <HelpCircle size={18} />, label: 'Справка' },
+  { to: '/accounts', icon: <Inbox size={18} />,      label: 'Аккаунты' },
+  { to: '/help',      icon: <HelpCircle size={18} />, label: 'Справка' },
 ]
 
 // Admin-only, appended rather than baked into NAV_ITEMS - /docs 403s the

@@ -9,3 +9,10 @@ import { join } from 'node:path'
 // `pnpm dev` - tests would otherwise write into (and potentially collide
 // with) local dev data.
 process.env['DATABASE_PATH'] = join(mkdtempSync(join(tmpdir(), 'herold-test-')), 'herold.db')
+
+// A fixed, valid (32-byte-decoded) key - lib/credentialCrypto.ts throws
+// without one. Fixed rather than randomly generated per run so a test
+// asserting on a specific stored ciphertext would be reproducible; no
+// test currently does, but there's no reason to make failures
+// nondeterministic when a constant is just as easy.
+process.env['HEROLD_CREDENTIAL_ENCRYPTION_KEY'] = 'qK+Wx510v3pdeUqnkjLEnplqTvwWBkXDS9uz4LdHL5c='

@@ -1,9 +1,9 @@
-import { createRouter, createRootRouteWithContext, createRoute, Outlet } from '@tanstack/react-router'
+import { createRouter, createRootRouteWithContext, createRoute, Outlet, redirect } from '@tanstack/react-router'
 import type { QueryClient } from '@tanstack/react-query'
 import { NotFoundPage } from '@zudar107/schloss-ui'
 import { Layout } from '../components/Layout'
 import { HeroIllustration } from '../components/HeroIllustration'
-import { HomePage } from '../features/home/HomePage'
+import { AccountsPage } from '../features/accounts/AccountsPage'
 import { DocsPage } from '../features/docs/DocsPage'
 import { HelpPage } from '../features/help/HelpPage'
 import { AuthCallbackPage } from '../features/auth/AuthCallbackPage'
@@ -37,10 +37,20 @@ const protectedLayout = createRoute({
   component: () => <Layout><Outlet /></Layout>,
 })
 
+// Redirects rather than rendering AccountsPage directly - once Stage 3
+// adds the actual mail UI, this becomes the real inbox route instead,
+// with AccountsPage staying reachable at its own settings-style URL
+// without having to move.
 const indexRoute = createRoute({
   getParentRoute: () => protectedLayout,
   path: '/',
-  component: HomePage,
+  beforeLoad: () => { throw redirect({ to: '/accounts' }) },
+})
+
+const accountsRoute = createRoute({
+  getParentRoute: () => protectedLayout,
+  path: '/accounts',
+  component: AccountsPage,
 })
 
 // Role-gated inside DocsPage itself, not here - the current user's role
@@ -62,6 +72,7 @@ const routeTree = rootRoute.addChildren([
   authCallbackRoute,
   protectedLayout.addChildren([
     indexRoute,
+    accountsRoute,
     docsRoute,
     helpRoute,
   ]),
