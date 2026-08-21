@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useLocation } from '@tanstack/react-router'
-import { FileCode2, HelpCircle, Home, Mail } from 'lucide-react'
+import { FileCode2, HelpCircle, Home, Inbox } from 'lucide-react'
 import { Toast, Sidebar, type SidebarLinkRenderProps } from '@zudar107/schloss-ui'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
@@ -19,7 +19,7 @@ const NAV_ITEMS = [
 // API request for anyone else, so hiding the link avoids a dead-end click.
 const DOCS_NAV_ITEM = { to: '/docs', icon: <FileCode2 size={18} />, label: 'Документация API' }
 
-const BRAND_MARK = <Mail size={16} />
+const BRAND_MARK = <Inbox size={16} />
 
 function renderNavLink({ to, icon, label, collapsed, style, onClick, onMouseEnter, onMouseLeave }: SidebarLinkRenderProps) {
   return (
