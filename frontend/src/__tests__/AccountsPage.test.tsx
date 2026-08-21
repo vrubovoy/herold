@@ -4,6 +4,13 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AccountsPage } from '../features/accounts/AccountsPage'
 
+const mockNavigate = vi.fn()
+const mockUseSearch = vi.fn(() => ({}) as Record<string, unknown>)
+vi.mock('@tanstack/react-router', () => ({
+  useNavigate: () => mockNavigate,
+  useSearch: () => mockUseSearch(),
+}))
+
 vi.mock('../lib/api', () => ({
   getMailAccounts: vi.fn(),
   createMailAccount: vi.fn(),
@@ -62,6 +69,8 @@ beforeEach(() => {
   vi.mocked(createMailAccount).mockReset()
   vi.mocked(updateMailAccount).mockReset()
   vi.mocked(deleteMailAccount).mockReset()
+  mockNavigate.mockReset()
+  mockUseSearch.mockReturnValue({})
 })
 
 async function waitForLoadingToFinish() {
@@ -136,6 +145,17 @@ describe('AccountsPage — open create form', () => {
 
     expect(await screen.findByLabelText('Название')).toBeInTheDocument()
     expect(screen.getByLabelText('Сервер')).toBeInTheDocument()
+  })
+
+  it('opens the create form immediately when arriving with ?new=true, and clears the param afterward', async () => {
+    vi.mocked(getMailAccounts).mockResolvedValue([sampleAccount])
+    mockUseSearch.mockReturnValue({ new: true })
+    render(<AccountsPage />, { wrapper: createWrapper() })
+
+    expect(await screen.findByLabelText('Название')).toBeInTheDocument()
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith(
+      expect.objectContaining({ to: '/accounts', search: {} }),
+    ))
   })
 })
 
