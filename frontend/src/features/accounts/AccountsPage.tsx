@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Inbox, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { Button, EmptyState, Toast } from '@zudar107/schloss-ui'
@@ -22,6 +23,8 @@ function errorMessage(error: unknown, fallback: string): string {
 export function AccountsPage() {
   const queryClient = useQueryClient()
   const toast = useToast()
+  const navigate = useNavigate()
+  const search = useSearch({ strict: false }) as { new?: boolean }
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<MailAccount | undefined>(undefined)
 
@@ -78,6 +81,20 @@ export function AccountsPage() {
     setFormOpen(false)
     setEditing(undefined)
   }
+
+  // A "Подключить аккаунт" action elsewhere in the app (MailPage's own
+  // empty state, when there's nowhere yet to redirect other than here)
+  // links to /accounts?new=true so the create form opens immediately
+  // instead of landing on this page and requiring a second click. The
+  // param is stripped right after opening so a later refresh/back
+  // doesn't keep reopening it.
+  useEffect(() => {
+    if (search.new) {
+      openCreate()
+      void navigate({ to: '/accounts', search: {}, replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.new])
 
   function handleFormSubmit(fields: MailAccountFields | MailAccountUpdate) {
     if (editing) {

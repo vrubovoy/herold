@@ -178,7 +178,7 @@ export function MailPage() {
           title="Сначала подключите аккаунт"
           description="Чтобы читать почту, подключите хотя бы один почтовый аккаунт."
           actionLabel="Подключить аккаунт"
-          onAction={() => void navigate({ to: '/accounts' })}
+          onAction={() => void navigate({ to: '/accounts', search: { new: true } })}
         />
       </div>
     )
