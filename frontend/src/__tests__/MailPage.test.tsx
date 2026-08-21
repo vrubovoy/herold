@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MailPage } from '../features/mail/MailPage'
@@ -17,10 +17,13 @@ vi.mock('../lib/api', () => ({
   getFolderMessages: vi.fn(),
   getMailMessage: vi.fn(),
   fetchAttachmentBlob: vi.fn(),
+  updateMailMessageFlags: vi.fn(),
+  deleteMailMessage: vi.fn(),
 }))
 
 import {
   getMailAccounts, getMailFolders, getFolderMessages, getMailMessage,
+  updateMailMessageFlags, deleteMailMessage,
   type MailAccount, type MailFolder, type MailMessageSummary, type MailMessageDetail,
 } from '../lib/api'
 
@@ -103,6 +106,8 @@ beforeEach(() => {
   vi.mocked(getMailFolders).mockReset()
   vi.mocked(getFolderMessages).mockReset()
   vi.mocked(getMailMessage).mockReset()
+  vi.mocked(updateMailMessageFlags).mockReset()
+  vi.mocked(deleteMailMessage).mockReset()
   mockNavigate.mockReset()
   mockUseSearch.mockReturnValue({})
 })
@@ -134,7 +139,7 @@ describe('MailPage — loads folders and messages for the selected account', () 
     await screen.findByText(unreadMessage.subject!)
 
     expect(getMailFolders).toHaveBeenCalledWith(sampleAccount.id)
-    expect(getFolderMessages).toHaveBeenCalledWith(inboxFolder.id)
+    expect(getFolderMessages).toHaveBeenCalledWith(inboxFolder.id, undefined)
 
     expect(screen.getByText(unreadMessage.subject!)).toBeInTheDocument()
     expect(screen.getByText(readMessage.subject!)).toBeInTheDocument()
@@ -235,5 +240,229 @@ describe('MailPage — message list error state', () => {
     await user.click(retryButton)
 
     await waitFor(() => expect(vi.mocked(getFolderMessages).mock.calls.length).toBeGreaterThan(callsBefore))
+  })
+})
+
+// Helper shared by the new describe blocks below: extracts the search
+// object a navigate() call was made with, mirroring the two-phase
+// pattern already established by "MailPage — opening a message" above -
+// clicking navigates, and the resulting search state is what needs to be
+// fed back into mockUseSearch on a fresh render to observe what happens
+// once the URL "has" that state.
+function extractNavSearch(navArg: unknown): Record<string, unknown> {
+  const arg = navArg as { search?: Record<string, unknown> } | Record<string, unknown>
+  return ('search' in arg ? arg.search : arg) as Record<string, unknown>
+}
+
+describe('MailPage — search box filters the message list', () => {
+  it('typing a query and pressing Enter navigates with a search state containing q, and once applied fetches messages with that query', async () => {
+    const user = userEvent.setup()
+    vi.mocked(getMailAccounts).mockResolvedValue([sampleAccount])
+    vi.mocked(getMailFolders).mockResolvedValue([inboxFolder])
+    vi.mocked(getFolderMessages).mockResolvedValue({ messages: [unreadMessage, readMessage], total: 2 })
+
+    const { unmount } = render(<MailPage />, { wrapper: createWrapper() })
+    await screen.findByText(unreadMessage.subject!)
+
+    let input: HTMLElement
+    try {
+      input = screen.getByRole('searchbox')
+    } catch {
+      input = screen.getByPlaceholderText(/поиск|тема|отправител/i)
+    }
+    await user.type(input, 'invoice{Enter}')
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalled())
+    const navArg = mockNavigate.mock.calls.at(-1)?.[0]
+    const nextSearch = extractNavSearch(navArg)
+    expect(nextSearch).toMatchObject({ q: 'invoice' })
+    unmount()
+
+    vi.mocked(getFolderMessages).mockReset()
+    vi.mocked(getFolderMessages).mockResolvedValue({ messages: [unreadMessage], total: 1 })
+    mockUseSearch.mockReturnValue(nextSearch)
+    render(<MailPage />, { wrapper: createWrapper() })
+
+    await waitFor(() =>
+      expect(getFolderMessages).toHaveBeenCalledWith(inboxFolder.id, expect.objectContaining({ q: 'invoice' })),
+    )
+  })
+})
+
+describe('MailPage — star/flag toggle on a message row', () => {
+  it('clicking the flag control on a row toggles flagsFlagged via updateMailMessageFlags, without navigating into the message', async () => {
+    const user = userEvent.setup()
+    vi.mocked(getMailAccounts).mockResolvedValue([sampleAccount])
+    vi.mocked(getMailFolders).mockResolvedValue([inboxFolder])
+    vi.mocked(getFolderMessages).mockResolvedValue({ messages: [unreadMessage, readMessage], total: 2 })
+    vi.mocked(updateMailMessageFlags).mockResolvedValue({ ...unreadMessage, flagsFlagged: true })
+
+    render(<MailPage />, { wrapper: createWrapper() })
+    const subjectEl = await screen.findByText(unreadMessage.subject!)
+
+    // Walk up from the subject text looking for a row-scoped clickable
+    // flag/star control (a smaller nested button distinct from the
+    // full-row "open message" click target). Prefer one whose accessible
+    // name mentions the flag concept; fall back to the first nested
+    // button found within the row ancestry otherwise.
+    let flagButton: HTMLElement | null = null
+    let node: HTMLElement | null = subjectEl
+    for (let i = 0; i < 8 && node && !flagButton; i++) {
+      const named = within(node).queryAllByRole('button', { name: /флаж|звезд|star|flag/i })
+      if (named.length > 0) flagButton = named[0]
+      node = node.parentElement
+    }
+    if (!flagButton) {
+      node = subjectEl
+      for (let i = 0; i < 8 && node && !flagButton; i++) {
+        const buttons = within(node).queryAllByRole('button')
+        if (buttons.length > 0) flagButton = buttons[0]
+        node = node.parentElement
+      }
+    }
+    expect(flagButton).not.toBeNull()
+
+    await user.click(flagButton!)
+
+    await waitFor(() =>
+      expect(updateMailMessageFlags).toHaveBeenCalledWith(
+        unreadMessage.id,
+        expect.objectContaining({ flagsFlagged: true }),
+      ),
+    )
+    expect(mockNavigate).not.toHaveBeenCalled()
+  })
+})
+
+describe('MailPage — auto-marks a message as read when opened', () => {
+  it('opening an unread message calls updateMailMessageFlags with flagsSeen: true', async () => {
+    const user = userEvent.setup()
+    vi.mocked(getMailAccounts).mockResolvedValue([sampleAccount])
+    vi.mocked(getMailFolders).mockResolvedValue([inboxFolder])
+    vi.mocked(getFolderMessages).mockResolvedValue({ messages: [unreadMessage, readMessage], total: 2 })
+    vi.mocked(getMailMessage).mockResolvedValue(messageDetail)
+    vi.mocked(updateMailMessageFlags).mockResolvedValue({ ...unreadMessage, flagsSeen: true })
+
+    const { unmount } = render(<MailPage />, { wrapper: createWrapper() })
+    const row = await screen.findByText(unreadMessage.subject!)
+    await user.click(row)
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalled())
+    const nextSearch = extractNavSearch(mockNavigate.mock.calls.at(-1)?.[0])
+    unmount()
+
+    mockUseSearch.mockReturnValue(nextSearch)
+    render(<MailPage />, { wrapper: createWrapper() })
+
+    await waitFor(() => expect(getMailMessage).toHaveBeenCalledWith(unreadMessage.id))
+    await screen.findByText(messageDetail.bodyText)
+
+    await waitFor(() =>
+      expect(updateMailMessageFlags).toHaveBeenCalledWith(
+        unreadMessage.id,
+        expect.objectContaining({ flagsSeen: true }),
+      ),
+    )
+  })
+
+  it('opening an already-read message does not auto-mark it as read again', async () => {
+    const user = userEvent.setup()
+    vi.mocked(getMailAccounts).mockResolvedValue([sampleAccount])
+    vi.mocked(getMailFolders).mockResolvedValue([inboxFolder])
+    vi.mocked(getFolderMessages).mockResolvedValue({ messages: [unreadMessage, readMessage], total: 2 })
+    const readDetail: MailMessageDetail = {
+      ...messageDetail,
+      id: readMessage.id,
+      subject: readMessage.subject,
+      flagsSeen: true,
+    }
+    vi.mocked(getMailMessage).mockResolvedValue(readDetail)
+
+    const { unmount } = render(<MailPage />, { wrapper: createWrapper() })
+    const row = await screen.findByText(readMessage.subject!)
+    await user.click(row)
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalled())
+    const nextSearch = extractNavSearch(mockNavigate.mock.calls.at(-1)?.[0])
+    unmount()
+
+    mockUseSearch.mockReturnValue(nextSearch)
+    render(<MailPage />, { wrapper: createWrapper() })
+
+    await waitFor(() => expect(getMailMessage).toHaveBeenCalledWith(readMessage.id))
+    await screen.findByText(readDetail.bodyText)
+
+    // Give any would-be auto-mark-as-read effect a chance to fire before
+    // asserting it never did.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(updateMailMessageFlags).not.toHaveBeenCalledWith(
+      readMessage.id,
+      expect.objectContaining({ flagsSeen: true }),
+    )
+  })
+})
+
+describe('MailPage — message detail action buttons', () => {
+  async function renderWithDetailOpen() {
+    const user = userEvent.setup()
+    vi.mocked(getMailAccounts).mockResolvedValue([sampleAccount])
+    vi.mocked(getMailFolders).mockResolvedValue([inboxFolder])
+    vi.mocked(getFolderMessages).mockResolvedValue({ messages: [unreadMessage, readMessage], total: 2 })
+    vi.mocked(getMailMessage).mockResolvedValue(messageDetail)
+
+    const { unmount } = render(<MailPage />, { wrapper: createWrapper() })
+    const row = await screen.findByText(unreadMessage.subject!)
+    await user.click(row)
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalled())
+    const nextSearch = extractNavSearch(mockNavigate.mock.calls.at(-1)?.[0])
+    unmount()
+
+    mockUseSearch.mockReturnValue(nextSearch)
+    render(<MailPage />, { wrapper: createWrapper() })
+    await screen.findByText(messageDetail.bodyText)
+
+    return user
+  }
+
+  it('clicking "mark as unread" calls updateMailMessageFlags with flagsSeen: false', async () => {
+    const user = await renderWithDetailOpen()
+    vi.mocked(updateMailMessageFlags).mockResolvedValue({ ...unreadMessage, flagsSeen: false })
+
+    const button = await screen.findByRole('button', { name: /непрочитан/i })
+    await user.click(button)
+
+    await waitFor(() =>
+      expect(updateMailMessageFlags).toHaveBeenCalledWith(
+        messageDetail.id,
+        expect.objectContaining({ flagsSeen: false }),
+      ),
+    )
+  })
+
+  it('clicking the flag/star action calls updateMailMessageFlags with the flipped flagsFlagged value', async () => {
+    const user = await renderWithDetailOpen()
+    const flipped = !messageDetail.flagsFlagged
+    vi.mocked(updateMailMessageFlags).mockResolvedValue({ ...unreadMessage, flagsFlagged: flipped })
+
+    const button = await screen.findByRole('button', { name: /флажок/i })
+    await user.click(button)
+
+    await waitFor(() =>
+      expect(updateMailMessageFlags).toHaveBeenCalledWith(
+        messageDetail.id,
+        expect.objectContaining({ flagsFlagged: flipped }),
+      ),
+    )
+  })
+
+  it('clicking "delete" calls deleteMailMessage with the message id', async () => {
+    const user = await renderWithDetailOpen()
+    vi.mocked(deleteMailMessage).mockResolvedValue({ ok: true })
+
+    const button = await screen.findByRole('button', { name: /удалить/i })
+    await user.click(button)
+
+    await waitFor(() => expect(deleteMailMessage).toHaveBeenCalledWith(messageDetail.id))
   })
 })

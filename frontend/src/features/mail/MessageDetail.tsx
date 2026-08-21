@@ -1,5 +1,8 @@
 import { useState } from 'react'
-import { ArrowLeft, CornerUpLeft, CornerUpRight, Download, Forward, Paperclip } from 'lucide-react'
+import {
+  ArrowLeft, CornerUpLeft, CornerUpRight, Download, Forward, MailOpen,
+  Paperclip, Star, Trash2,
+} from 'lucide-react'
 import { downloadBlob, formatDate } from '@zudar107/schloss-ui'
 import { useToast } from '../../hooks/useToast'
 import { fetchAttachmentBlob, type MailMessageDetail } from '../../lib/api'
@@ -27,10 +30,13 @@ function addressListDisplay(addresses: MailMessageDetail['toAddresses']): string
   return addresses.map((a) => a.name ? `${a.name} <${a.address ?? ''}>` : (a.address ?? '')).join(', ')
 }
 
-export function MessageDetail({ message, onBack, onCompose }: {
+export function MessageDetail({ message, onBack, onCompose, onMarkUnread, onToggleFlag, onDelete }: {
   message: MailMessageDetail
   onBack: () => void
   onCompose: (mode: ComposeMode) => void
+  onMarkUnread: () => void
+  onToggleFlag: () => void
+  onDelete: () => void
 }) {
   const toast = useToast()
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
@@ -53,7 +59,7 @@ export function MessageDetail({ message, onBack, onCompose }: {
         <button type="button" onClick={onBack} className="btn-ghost" style={{ paddingLeft: '0.5rem' }}>
           <ArrowLeft size={16} />Назад к списку
         </button>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
           <button type="button" onClick={() => onCompose('reply')} className="btn-ghost" style={{ border: '1px solid var(--border)' }}>
             <CornerUpLeft size={14} />Ответить
           </button>
@@ -62,6 +68,16 @@ export function MessageDetail({ message, onBack, onCompose }: {
           </button>
           <button type="button" onClick={() => onCompose('forward')} className="btn-ghost" style={{ border: '1px solid var(--border)' }}>
             <Forward size={14} />Переслать
+          </button>
+          <button type="button" onClick={onToggleFlag} className="btn-ghost" style={{ border: '1px solid var(--border)' }}>
+            <Star size={14} fill={message.flagsFlagged ? 'var(--warning)' : 'none'} color={message.flagsFlagged ? 'var(--warning)' : undefined} />
+            {message.flagsFlagged ? 'Убрать флажок' : 'Флажок'}
+          </button>
+          <button type="button" onClick={onMarkUnread} className="btn-ghost" style={{ border: '1px solid var(--border)' }}>
+            <MailOpen size={14} />Непрочитано
+          </button>
+          <button type="button" onClick={onDelete} className="btn-ghost" style={{ border: '1px solid var(--danger)', color: 'var(--danger)' }}>
+            <Trash2 size={14} />Удалить
           </button>
         </div>
       </div>
