@@ -1,0 +1,77 @@
+import nodemailer from 'nodemailer'
+import MailComposer from 'nodemailer/lib/mail-composer/index.js'
+import { randomUUID } from 'node:crypto'
+import type { MailAccount } from '../db/schema.js'
+import { decryptCredential } from './credentialCrypto.js'
+
+export interface OutgoingMail {
+  to: string[]
+  cc?: string[]
+  bcc?: string[]
+  subject: string
+  bodyText: string
+  // The RFC822 Message-ID of the message being replied to (angle-bracket
+  // form, exactly as mirrored in mailMessages.messageId) - References is
+  // deliberately derived from this alone rather than tracked as a real
+  // growing chain, since mailMessages doesn't store the original
+  // message's own References header.
+  inReplyTo?: string
+}
+
+export interface SentMail {
+  messageId: string
+  // The exact raw RFC822 bytes handed to the SMTP transport - reused
+  // as-is for the best-effort IMAP APPEND to Sent (see
+  // features/messages/router.ts), so the mirrored copy is byte-identical
+  // to what was actually sent rather than a second, potentially
+  // slightly different, re-composition of the same fields.
+  raw: Buffer
+}
+
+// nodemailer, unlike imapflow (see lib/imapConnection.ts's own comment on
+// this same three-way split), can actually force a truly-plaintext-only
+// connection - 'none' maps to `ignoreTLS: true` rather than sharing
+// 'starttls''s opportunistic-upgrade behavior.
+function transportOptions(account: MailAccount) {
+  const auth = { user: account.smtpUsername, pass: decryptCredential(account.smtpPasswordEncrypted) }
+  const base = { host: account.smtpHost, port: account.smtpPort, auth, connectionTimeout: 20_000, greetingTimeout: 20_000 }
+  switch (account.smtpSecurity) {
+    case 'tls': return { ...base, secure: true }
+    case 'starttls': return { ...base, secure: false, requireTLS: true }
+    case 'none': return { ...base, secure: false, ignoreTLS: true }
+  }
+}
+
+export async function sendMail(account: MailAccount, mail: OutgoingMail): Promise<SentMail> {
+  const domain = account.fromEmail.split('@')[1] ?? 'herold.local'
+  const messageId = `<${randomUUID()}@${domain}>`
+
+  const mailOptions = {
+    from: { name: account.fromName, address: account.fromEmail },
+    to: mail.to,
+    cc: mail.cc,
+    bcc: mail.bcc,
+    subject: mail.subject,
+    text: mail.bodyText,
+    messageId,
+    inReplyTo: mail.inReplyTo,
+    references: mail.inReplyTo ? [mail.inReplyTo] : undefined,
+  }
+
+  // Composed once, sent as `raw` rather than handing the same field set to
+  // sendMail() a second time to compose internally - guarantees the bytes
+  // we later APPEND to Sent are exactly what went out over SMTP.
+  const raw = await new MailComposer(mailOptions).compile().build()
+
+  const transport = nodemailer.createTransport(transportOptions(account))
+  try {
+    await transport.sendMail({
+      raw,
+      envelope: { from: account.fromEmail, to: [...mail.to, ...(mail.cc ?? []), ...(mail.bcc ?? [])] },
+    })
+  } finally {
+    transport.close()
+  }
+
+  return { messageId, raw }
+}

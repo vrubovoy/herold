@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { ArrowLeft, Download, Paperclip } from 'lucide-react'
+import { ArrowLeft, CornerUpLeft, CornerUpRight, Download, Forward, Paperclip } from 'lucide-react'
 import { downloadBlob, formatDate } from '@zudar107/schloss-ui'
 import { useToast } from '../../hooks/useToast'
 import { fetchAttachmentBlob, type MailMessageDetail } from '../../lib/api'
+import type { ComposeMode } from './ComposeModal'
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} Б`
@@ -26,7 +27,11 @@ function addressListDisplay(addresses: MailMessageDetail['toAddresses']): string
   return addresses.map((a) => a.name ? `${a.name} <${a.address ?? ''}>` : (a.address ?? '')).join(', ')
 }
 
-export function MessageDetail({ message, onBack }: { message: MailMessageDetail; onBack: () => void }) {
+export function MessageDetail({ message, onBack, onCompose }: {
+  message: MailMessageDetail
+  onBack: () => void
+  onCompose: (mode: ComposeMode) => void
+}) {
   const toast = useToast()
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
 
@@ -44,14 +49,22 @@ export function MessageDetail({ message, onBack }: { message: MailMessageDetail;
 
   return (
     <div>
-      <button
-        type="button"
-        onClick={onBack}
-        className="btn-ghost"
-        style={{ marginBottom: '1rem', paddingLeft: '0.5rem' }}
-      >
-        <ArrowLeft size={16} />Назад к списку
-      </button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', gap: '0.75rem', flexWrap: 'wrap' }}>
+        <button type="button" onClick={onBack} className="btn-ghost" style={{ paddingLeft: '0.5rem' }}>
+          <ArrowLeft size={16} />Назад к списку
+        </button>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button type="button" onClick={() => onCompose('reply')} className="btn-ghost" style={{ border: '1px solid var(--border)' }}>
+            <CornerUpLeft size={14} />Ответить
+          </button>
+          <button type="button" onClick={() => onCompose('replyAll')} className="btn-ghost" style={{ border: '1px solid var(--border)' }}>
+            <CornerUpRight size={14} />Ответить всем
+          </button>
+          <button type="button" onClick={() => onCompose('forward')} className="btn-ghost" style={{ border: '1px solid var(--border)' }}>
+            <Forward size={14} />Переслать
+          </button>
+        </div>
+      </div>
 
       <div className="card" style={{ padding: '1.5rem' }}>
         <h1 style={{ margin: '0 0 0.75rem', fontSize: '1.125rem', fontWeight: 700, color: 'var(--text-primary)' }}>

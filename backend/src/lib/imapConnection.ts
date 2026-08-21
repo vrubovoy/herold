@@ -87,3 +87,34 @@ export async function openAttachmentStream(account: MailAccount, folderName: str
     throw error
   }
 }
+
+// Best-effort mirroring of a just-sent message into the account's own
+// Sent folder - many providers (Gmail, etc.) already auto-file a message
+// sent through their SMTP server, in which case this APPEND produces a
+// harmless duplicate that the next sync pass's UIDVALIDITY/UID bookkeeping
+// never even notices (it's simply another message with a higher UID).
+// Failure here is deliberately swallowed by the caller (see
+// features/messages/router.ts) - the send itself already succeeded, and a
+// missing Sent copy is a cosmetic gap the next sync pass cannot fix on its
+// own only if the provider *also* doesn't auto-file, which is rare.
+export async function appendToSent(account: MailAccount, folderName: string, raw: Buffer): Promise<void> {
+  const client = new ImapFlow({
+    host: account.imapHost,
+    port: account.imapPort,
+    secure: account.imapSecurity === 'tls',
+    auth: { user: account.imapUsername, pass: decryptCredential(account.imapPasswordEncrypted) },
+    logger: false,
+    connectionTimeout: 20_000,
+    greetingTimeout: 20_000,
+  })
+  try {
+    await client.connect()
+    await client.append(folderName, raw, ['\\Seen'])
+  } finally {
+    try {
+      await client.logout()
+    } catch {
+      client.close()
+    }
+  }
+}

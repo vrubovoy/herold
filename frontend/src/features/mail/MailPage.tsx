@@ -1,15 +1,18 @@
+import { useState } from 'react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertOctagon, FileEdit, Folder as FolderIcon, Inbox as InboxIcon,
-  Paperclip, RefreshCw, Send, Trash2,
+  PenSquare, Paperclip, RefreshCw, Send, Trash2,
 } from 'lucide-react'
 import { EmptyState, formatDate } from '@zudar107/schloss-ui'
 import { HeroIllustration } from '../../components/HeroIllustration'
 import { MessageDetail } from './MessageDetail'
+import { ComposeModal, type ComposeInitial, type ComposeMode } from './ComposeModal'
+import { useToast } from '../../hooks/useToast'
 import {
   getMailAccounts, getMailFolders, getFolderMessages, getMailMessage,
-  type MailFolder, type MailMessageSummary,
+  type MailFolder, type MailMessageDetail, type MailMessageSummary,
 } from '../../lib/api'
 
 const SPECIAL_USE_ICONS: Record<string, React.ReactNode> = {
@@ -36,6 +39,19 @@ function folderDisplayName(folder: MailFolder): string {
   return (folder.specialUse && SPECIAL_USE_LABELS[folder.specialUse]) ?? folder.name
 }
 
+function withPrefix(prefix: string, subject: string | null): string {
+  const s = subject ?? ''
+  const already = new RegExp(`^${prefix}:`, 'i').test(s)
+  return already ? s : `${prefix}: ${s}`.trim()
+}
+
+function quoteBody(message: MailMessageDetail): string {
+  const who = message.fromName || message.fromAddress || 'Отправитель'
+  const header = message.date ? `${who} (${formatDate(message.date)}) писал(а):` : `${who} писал(а):`
+  const quoted = message.bodyText.split('\n').map((line) => `> ${line}`).join('\n')
+  return `\n\n${header}\n${quoted}`
+}
+
 // Account/folder/message selection lives in the URL (same convention as
 // Schrank's own ?folder=), not component state - a shared link or
 // browser back/forward lands on the exact same view.
@@ -44,6 +60,9 @@ type MailSearch = { account?: string; folder?: string; message?: string }
 export function MailPage() {
   const navigate = useNavigate()
   const search = useSearch({ strict: false }) as MailSearch
+  const queryClient = useQueryClient()
+  const toast = useToast()
+  const [compose, setCompose] = useState<ComposeInitial | null>(null)
 
   const { data: accounts = [], isLoading: accountsLoading } = useQuery({
     queryKey: ['accounts'],
@@ -77,6 +96,39 @@ export function MailPage() {
     void navigate({ to: '/mail', search: next })
   }
 
+  function openCompose(mode: ComposeMode) {
+    if (!accountId) return
+    if (mode === 'new') {
+      setCompose({ accountId, mode })
+      return
+    }
+    if (!message) return
+    if (mode === 'forward') {
+      setCompose({ accountId, mode, subject: withPrefix('Fwd', message.subject), bodyText: quoteBody(message) })
+      return
+    }
+    const account = accounts.find((a) => a.id === accountId)
+    const cc = mode === 'replyAll'
+      ? message.toAddresses
+        .map((a) => a.address)
+        .filter((addr): addr is string => !!addr && addr !== account?.fromEmail && addr !== message.fromAddress)
+        .join(', ')
+      : undefined
+    setCompose({
+      accountId, mode, cc,
+      to: message.fromAddress ?? '',
+      subject: withPrefix('Re', message.subject),
+      bodyText: quoteBody(message),
+      inReplyTo: message.messageId ?? undefined,
+    })
+  }
+
+  function handleComposeSent() {
+    setCompose(null)
+    toast.showSuccess('Письмо отправлено')
+    void queryClient.invalidateQueries({ queryKey: ['mail-messages'] })
+  }
+
   if (accountsLoading) {
     return <div className="empty-wrap"><LoadingMailState /></div>
   }
@@ -98,6 +150,18 @@ export function MailPage() {
   return (
     <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-start' }}>
       <aside style={{ width: 200, flexShrink: 0 }}>
+        <button
+          type="button"
+          onClick={() => openCompose('new')}
+          className="btn-ghost"
+          style={{
+            justifyContent: 'center', gap: '0.5rem', width: '100%', marginBottom: '1rem',
+            background: 'var(--accent)', color: 'var(--text-inverted)', border: 'none', fontWeight: 600,
+          }}
+        >
+          <PenSquare size={16} />Написать письмо
+        </button>
+
         {accounts.length > 1 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginBottom: '1rem' }}>
             {accounts.map((a) => (
@@ -144,7 +208,11 @@ export function MailPage() {
           messageLoading || !message ? (
             <div className="empty-wrap"><LoadingMailState /></div>
           ) : (
-            <MessageDetail message={message} onBack={() => goTo({ account: accountId!, folder: folderId! })} />
+            <MessageDetail
+              message={message}
+              onBack={() => goTo({ account: accountId!, folder: folderId! })}
+              onCompose={openCompose}
+            />
           )
         ) : (
           <>
@@ -188,6 +256,17 @@ export function MailPage() {
           </>
         )}
       </div>
+
+      {compose && (
+        <ComposeModal
+          key={`${compose.mode}-${messageId ?? 'new'}`}
+          open
+          accounts={accounts}
+          initial={compose}
+          onClose={() => setCompose(null)}
+          onSent={handleComposeSent}
+        />
+      )}
     </div>
   )
 }

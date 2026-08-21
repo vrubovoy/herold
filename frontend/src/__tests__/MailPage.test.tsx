@@ -85,6 +85,7 @@ const readMessage: MailMessageSummary = {
 
 const messageDetail: MailMessageDetail = {
   id: 'msg-1',
+  messageId: '<msg-1@example.com>',
   subject: 'Unread subject line',
   fromAddress: 'alice@example.com',
   fromName: 'Alice Sender',
