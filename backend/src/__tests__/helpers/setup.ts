@@ -4,6 +4,7 @@ import { usersRouter } from '../../features/users/router.js'
 import { accountsRouter } from '../../features/accounts/router.js'
 import { foldersRouter } from '../../features/folders/router.js'
 import { messagesRouter } from '../../features/messages/router.js'
+import { exportsRouter } from '../../features/exports/router.js'
 import { requireAuth, requireAdmin } from '../../middleware/auth.js'
 import { openApiDocument } from '../../openapi.js'
 
@@ -36,6 +37,14 @@ export function createTestApp() {
   app.get('/openapi.json', requireAuth, requireAdmin, (c) => c.json(openApiDocument))
   app.route('/users', usersRouter)
   app.route('/accounts', accountsRouter)
+  // exportsRouter must be mounted before foldersRouter/messagesRouter -
+  // see the matching comment in index.ts. Both of those are mounted at
+  // root '/' with their own `router.use('*', requireAuth)`, which in Hono
+  // leaks onto every path in the whole app, not just their own routes,
+  // in registration order - mounting them first would otherwise make
+  // their plain requireAuth intercept GET /exports/me before
+  // exportsRouter's own requireExportAuth ever runs.
+  app.route('/exports', exportsRouter)
   app.route('/', foldersRouter)
   app.route('/', messagesRouter)
   return app

@@ -11,6 +11,7 @@ import { usersRouter } from './features/users/router.js'
 import { accountsRouter } from './features/accounts/router.js'
 import { foldersRouter } from './features/folders/router.js'
 import { messagesRouter } from './features/messages/router.js'
+import { exportsRouter } from './features/exports/router.js'
 import { requireAuth, requireAdmin } from './middleware/auth.js'
 import { openApiDocument } from './openapi.js'
 import { startMailSyncWorker } from './sync/worker.js'
@@ -45,6 +46,17 @@ app.get('/openapi.json', requireAuth, requireAdmin, (c) => c.json(openApiDocumen
 
 app.route('/users', usersRouter)
 app.route('/accounts', accountsRouter)
+// Mounted before foldersRouter/messagesRouter below - both of those are
+// mounted at root '/' and each registers its own `router.use('*',
+// requireAuth)`. In Hono, a wildcard middleware on a sub-app mounted at
+// '/' matches every path handled by the whole app, not just that
+// sub-app's own routes, and is applied in registration order: whichever
+// router is mounted first gets first crack at every incoming request.
+// exportsRouter must therefore be registered before them, or its own
+// GET /exports/me route never gets a chance to run requireExportAuth -
+// foldersRouter's/messagesRouter's plain requireAuth (which doesn't
+// understand export delegation tokens) intercepts and 401s it first.
+app.route('/exports', exportsRouter)
 // Both mounted at root, not '/accounts' or '/folders' - their own
 // internal routes already spell out the full path (e.g.
 // '/accounts/:accountId/folders', '/folders/:folderId/messages')

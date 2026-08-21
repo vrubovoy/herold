@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertOctagon, FileEdit, Folder as FolderIcon, Inbox as InboxIcon,
-  PenSquare, Paperclip, RefreshCw, Send, Trash2,
+  PenSquare, Paperclip, RefreshCw, Search, Send, Star, Trash2, X,
 } from 'lucide-react'
 import { EmptyState, formatDate } from '@zudar107/schloss-ui'
 import { HeroIllustration } from '../../components/HeroIllustration'
@@ -12,6 +12,7 @@ import { ComposeModal, type ComposeInitial, type ComposeMode } from './ComposeMo
 import { useToast } from '../../hooks/useToast'
 import {
   getMailAccounts, getMailFolders, getFolderMessages, getMailMessage,
+  updateMailMessageFlags, deleteMailMessage,
   type MailFolder, type MailMessageDetail, type MailMessageSummary,
 } from '../../lib/api'
 
@@ -55,7 +56,7 @@ function quoteBody(message: MailMessageDetail): string {
 // Account/folder/message selection lives in the URL (same convention as
 // Schrank's own ?folder=), not component state - a shared link or
 // browser back/forward lands on the exact same view.
-type MailSearch = { account?: string; folder?: string; message?: string }
+type MailSearch = { account?: string; folder?: string; message?: string; q?: string }
 
 export function MailPage() {
   const navigate = useNavigate()
@@ -78,10 +79,11 @@ export function MailPage() {
   })
 
   const folderId = search.folder ?? folders.find((f) => f.specialUse === 'inbox')?.id ?? folders[0]?.id ?? null
+  const q = search.q ?? ''
 
   const { data: messagesPage, isLoading: messagesLoading, isError: messagesError, refetch: refetchMessages } = useQuery({
-    queryKey: ['mail-messages', folderId],
-    queryFn: () => getFolderMessages(folderId!),
+    queryKey: ['mail-messages', folderId, q],
+    queryFn: () => getFolderMessages(folderId!, q ? { q } : undefined),
     enabled: !!folderId,
   })
 
@@ -92,9 +94,44 @@ export function MailPage() {
     enabled: !!messageId,
   })
 
+  const [queryInput, setQueryInput] = useState(q)
+  useEffect(() => setQueryInput(q), [q])
+
   function goTo(next: MailSearch) {
     void navigate({ to: '/mail', search: next })
   }
+
+  function invalidateMessages() {
+    void queryClient.invalidateQueries({ queryKey: ['mail-messages'] })
+  }
+
+  const flagsMutation = useMutation({
+    mutationFn: (input: { id: string; flags: { flagsSeen?: boolean; flagsFlagged?: boolean } }) =>
+      updateMailMessageFlags(input.id, input.flags),
+    onSuccess: () => {
+      invalidateMessages()
+      void queryClient.invalidateQueries({ queryKey: ['mail-message', messageId] })
+    },
+    onError: () => toast.showError('Не удалось обновить письмо'),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteMailMessage(id),
+    onSuccess: () => {
+      invalidateMessages()
+      toast.showSuccess('Письмо удалено')
+      goTo({ account: accountId ?? undefined, folder: folderId ?? undefined, q: q || undefined })
+    },
+    onError: () => toast.showError('Не удалось удалить письмо'),
+  })
+
+  // Mirrors an ordinary inbox: opening an unread message marks it read.
+  useEffect(() => {
+    if (message && messageId && !message.flagsSeen) {
+      flagsMutation.mutate({ id: messageId, flags: { flagsSeen: true } })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [message?.id])
 
   function openCompose(mode: ComposeMode) {
     if (!accountId) return
@@ -210,12 +247,52 @@ export function MailPage() {
           ) : (
             <MessageDetail
               message={message}
-              onBack={() => goTo({ account: accountId!, folder: folderId! })}
+              onBack={() => goTo({ account: accountId!, folder: folderId!, q: q || undefined })}
               onCompose={openCompose}
+              onMarkUnread={() => {
+                flagsMutation.mutate({ id: message.id, flags: { flagsSeen: false } })
+                goTo({ account: accountId!, folder: folderId!, q: q || undefined })
+              }}
+              onToggleFlag={() => flagsMutation.mutate({ id: message.id, flags: { flagsFlagged: !message.flagsFlagged } })}
+              onDelete={() => deleteMutation.mutate(message.id)}
             />
           )
         ) : (
           <>
+            <form
+              role="search"
+              onSubmit={(e) => {
+                e.preventDefault()
+                goTo({ account: accountId!, folder: folderId!, q: queryInput.trim() || undefined })
+              }}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}
+            >
+              <div style={{ position: 'relative', flex: 1 }}>
+                <Search size={14} color="var(--text-muted)" style={{ position: 'absolute', left: '0.625rem', top: '50%', transform: 'translateY(-50%)' }} />
+                <input
+                  type="search"
+                  value={queryInput}
+                  onChange={(e) => setQueryInput(e.target.value)}
+                  placeholder="Поиск по теме, отправителю и тексту письма"
+                  style={{
+                    width: '100%', padding: '0.5rem 0.75rem 0.5rem 2rem', borderRadius: 8,
+                    border: '1px solid var(--border)', background: 'var(--bg-surface)', color: 'var(--text-primary)',
+                    fontSize: '0.8125rem', outline: 'none',
+                  }}
+                />
+              </div>
+              {q && (
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  onClick={() => { setQueryInput(''); goTo({ account: accountId!, folder: folderId! }) }}
+                  aria-label="Очистить поиск"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </form>
+
             {messagesLoading && <div className="empty-wrap"><LoadingMailState /></div>}
 
             {messagesError && (
@@ -234,11 +311,11 @@ export function MailPage() {
             {!messagesLoading && !messagesError && messagesPage?.messages.length === 0 && (
               <EmptyState
                 illustration={<HeroIllustration size={100} />}
-                title="Писем пока нет"
-                description="Здесь появятся письма из этой папки после следующей синхронизации."
-                actionLabel="Обновить"
-                actionIcon={<RefreshCw size={16} />}
-                onAction={() => void refetchMessages()}
+                title={q ? 'Ничего не найдено' : 'Писем пока нет'}
+                description={q ? 'Попробуйте изменить запрос.' : 'Здесь появятся письма из этой папки после следующей синхронизации.'}
+                actionLabel={q ? 'Очистить поиск' : 'Обновить'}
+                actionIcon={q ? <X size={16} /> : <RefreshCw size={16} />}
+                onAction={() => q ? goTo({ account: accountId!, folder: folderId! }) : void refetchMessages()}
               />
             )}
 
@@ -248,7 +325,8 @@ export function MailPage() {
                   <MessageRow
                     key={m.id}
                     message={m}
-                    onOpen={() => goTo({ account: accountId!, folder: folderId!, message: m.id })}
+                    onOpen={() => goTo({ account: accountId!, folder: folderId!, message: m.id, q: q || undefined })}
+                    onToggleFlag={() => flagsMutation.mutate({ id: m.id, flags: { flagsFlagged: !m.flagsFlagged } })}
                   />
                 ))}
               </div>
@@ -271,7 +349,11 @@ export function MailPage() {
   )
 }
 
-function MessageRow({ message, onOpen }: { message: MailMessageSummary; onOpen: () => void }) {
+function MessageRow({ message, onOpen, onToggleFlag }: {
+  message: MailMessageSummary
+  onOpen: () => void
+  onToggleFlag: () => void
+}) {
   const unread = !message.flagsSeen
   return (
     <button
@@ -283,6 +365,16 @@ function MessageRow({ message, onOpen }: { message: MailMessageSummary; onOpen: 
         background: 'transparent', font: 'inherit',
       }}
     >
+      <span
+        role="button"
+        tabIndex={0}
+        aria-label={message.flagsFlagged ? 'Убрать флажок' : 'Поставить флажок'}
+        onClick={(e) => { e.stopPropagation(); onToggleFlag() }}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onToggleFlag() } }}
+        style={{ display: 'flex', flexShrink: 0, cursor: 'pointer' }}
+      >
+        <Star size={14} fill={message.flagsFlagged ? 'var(--warning)' : 'none'} color={message.flagsFlagged ? 'var(--warning)' : 'var(--text-muted)'} />
+      </span>
       <span style={{
         width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
         background: unread ? 'var(--accent)' : 'transparent',

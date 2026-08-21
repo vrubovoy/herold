@@ -158,17 +158,29 @@ export function getMailFolders(accountId: string): Promise<MailFolder[]> {
 
 export function getFolderMessages(
   folderId: string,
-  params?: { limit?: number; offset?: number },
+  params?: { limit?: number; offset?: number; q?: string },
 ): Promise<{ messages: MailMessageSummary[]; total: number }> {
   const query = new URLSearchParams()
   if (params?.limit) query.set('limit', String(params.limit))
   if (params?.offset) query.set('offset', String(params.offset))
+  if (params?.q) query.set('q', params.q)
   const qs = query.toString()
   return api.get(`/folders/${encodeURIComponent(folderId)}/messages${qs ? `?${qs}` : ''}`)
 }
 
 export function getMailMessage(id: string): Promise<MailMessageDetail> {
   return api.get(`/messages/${encodeURIComponent(id)}`)
+}
+
+export function updateMailMessageFlags(
+  id: string,
+  flags: { flagsSeen?: boolean; flagsFlagged?: boolean },
+): Promise<MailMessageSummary> {
+  return api.patch(`/messages/${encodeURIComponent(id)}`, flags)
+}
+
+export function deleteMailMessage(id: string): Promise<{ ok: true }> {
+  return api.delete(`/messages/${encodeURIComponent(id)}`)
 }
 
 export function attachmentDownloadUrl(messageId: string, attachmentId: string): string {

@@ -14,6 +14,10 @@ registry.registerComponent('securitySchemes', 'bearerAuth', {
   scheme: 'bearer',
   bearerFormat: 'JWT',
 })
+registry.registerComponent('securitySchemes', 'exportDelegationAuth', {
+  type: 'http', scheme: 'bearer', bearerFormat: 'JWT',
+  description: 'Schlüssel export delegation scoped to audience hof-service:herold and data:export.',
+})
 
 const BEARER = [{ bearerAuth: [] }]
 
@@ -184,9 +188,14 @@ registry.registerPath({
 registry.registerPath({
   method: 'get', path: '/folders/{folderId}/messages', tags: ['mail'],
   summary: 'List a folder\'s mirrored messages, newest first', security: BEARER,
+  description: 'Optional `q` searches subject/sender/body via SQL LIKE, scoped to this folder.',
   request: {
     params: z.object({ folderId: z.string() }),
-    query: z.object({ limit: z.coerce.number().int().min(1).max(200).optional(), offset: z.coerce.number().int().min(0).optional() }),
+    query: z.object({
+      limit: z.coerce.number().int().min(1).max(200).optional(),
+      offset: z.coerce.number().int().min(0).optional(),
+      q: z.string().min(1).max(200).optional(),
+    }),
   },
   responses: {
     200: {
@@ -204,6 +213,34 @@ registry.registerPath({
     404: { description: 'Not found', content: { 'application/json': { schema: errorResponseSchema } } },
   },
 })
+const updateFlagsRequestSchema = z.object({
+  flagsSeen: z.boolean().optional(),
+  flagsFlagged: z.boolean().optional(),
+})
+
+registry.registerPath({
+  method: 'patch', path: '/messages/{id}', tags: ['mail'],
+  summary: 'Mark a message read/unread and/or flagged', security: BEARER,
+  description: 'Writes through to the real IMAP server (STORE) before updating the local mirror row - at least one of flagsSeen/flagsFlagged is required.',
+  request: { params: z.object({ id: z.string() }), body: { content: { 'application/json': { schema: updateFlagsRequestSchema } } } },
+  responses: {
+    200: { description: 'Updated message summary', content: { 'application/json': { schema: mailMessageSummarySchema } } },
+    404: { description: 'Not found', content: { 'application/json': { schema: errorResponseSchema } } },
+    502: { description: 'Could not write the flag change to the IMAP server', content: { 'application/json': { schema: errorResponseSchema } } },
+  },
+})
+registry.registerPath({
+  method: 'delete', path: '/messages/{id}', tags: ['mail'],
+  summary: 'Delete a message', security: BEARER,
+  description: 'Moves the message to the account\'s Trash folder (or permanently deletes it in place if no Trash folder has been discovered locally yet).',
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: { description: 'Deleted' },
+    404: { description: 'Not found', content: { 'application/json': { schema: errorResponseSchema } } },
+    502: { description: 'Could not delete/move the message on the IMAP server', content: { 'application/json': { schema: errorResponseSchema } } },
+  },
+})
+
 const sendMessageRequestSchema = z.object({
   to: z.array(z.email()).min(1).max(50),
   cc: z.array(z.email()).max(50).optional(),
@@ -238,6 +275,41 @@ registry.registerPath({
     200: { description: 'Raw attachment bytes, with the stored Content-Type/filename' },
     404: { description: 'Not found', content: { 'application/json': { schema: errorResponseSchema } } },
     502: { description: 'Could not fetch the attachment from the IMAP server', content: { 'application/json': { schema: errorResponseSchema } } },
+  },
+})
+
+const exportAccountSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  imapHost: z.string(),
+  smtpHost: z.string(),
+  fromEmail: z.string(),
+  syncState: z.enum(['pending', 'ok', 'error']),
+  createdAt: z.iso.datetime(),
+})
+const exportFolderSchema = z.object({
+  id: z.string(),
+  accountId: z.string(),
+  name: z.string(),
+  specialUse: z.enum(['inbox', 'sent', 'drafts', 'trash', 'junk']).nullable(),
+  messageCount: z.number().int(),
+  createdAt: z.iso.datetime(),
+})
+
+registry.registerPath({
+  method: 'get', path: '/exports/me', tags: ['exports'],
+  summary: "Export the caller's connected accounts and folders",
+  description: 'Metadata only (account labels/hosts, folder names, message counts) - never credentials or message content.',
+  security: [{ bearerAuth: [] }, { exportDelegationAuth: [] }],
+  responses: {
+    200: {
+      description: 'Versioned Herold export envelope',
+      content: { 'application/json': { schema: z.object({
+        version: z.literal('1'), service: z.literal('herold'), exportedAt: z.iso.datetime(),
+        data: z.object({ accounts: z.array(exportAccountSchema), folders: z.array(exportFolderSchema) }),
+      }) } },
+    },
+    401: { description: 'Missing, invalid, expired, or incorrectly scoped token', content: { 'application/json': { schema: errorResponseSchema } } },
   },
 })
 

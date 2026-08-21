@@ -53,10 +53,17 @@ Platform wiring, mail account management (connect/edit/disconnect,
 read-only IMAP sync (a background worker mirrors every connected
 account's folders and messages - headers + plain-text body, never raw
 HTML or attachment bytes - into the local database on a timer, with
-attachments streamed live from IMAP on demand rather than stored), and
+attachments streamed live from IMAP on demand rather than stored),
 composing/sending mail (new message, reply, reply-all, forward) via the
 account's own SMTP settings, with a best-effort local + IMAP-APPEND
-mirror into Sent.
+mirror into Sent, and message actions/search: read/unread and
+flag/star (written through to the real server before the local mirror
+updates), delete (moves to the account's Trash folder via IMAP `MOVE`,
+or permanently deletes in place if no Trash folder is known yet), and
+a search box over the local mirror (subject/sender/body, per folder).
+A metadata-only `GET /exports/me` (account labels/hosts, folder names,
+message counts - never credentials or message content) is also
+implemented.
 
 ## API
 
@@ -73,13 +80,16 @@ mirror into Sent.
 | `POST` | `/accounts/test-connection` | Verify IMAP credentials (submitted directly, not yet saved) |
 | `POST` | `/accounts/:id/test-connection` | Re-verify a saved account's stored IMAP credential |
 | `GET` | `/accounts/:accountId/folders` | An account's mirrored IMAP folders |
-| `GET` | `/folders/:folderId/messages` | A folder's mirrored messages, newest first, paginated (`limit`/`offset`) |
+| `GET` | `/folders/:folderId/messages` | A folder's mirrored messages, newest first, paginated (`limit`/`offset`); optional `q` searches subject/sender/body |
 | `GET` | `/messages/:id` | A single message in full (headers + plain-text body + attachment list) |
+| `PATCH` | `/messages/:id` | Mark read/unread and/or flagged - writes through to IMAP (`STORE`) before updating the local mirror |
+| `DELETE` | `/messages/:id` | Moves to Trash (IMAP `MOVE`), or permanently deletes in place if no Trash folder is known yet |
 | `GET` | `/messages/:id/attachments/:attachmentId` | Streams an attachment's bytes live from IMAP - never stored locally |
 | `POST` | `/accounts/:accountId/messages/send` | Sends via the account's SMTP settings; best-effort mirrors into the local + real Sent folder |
+| `GET` | `/exports/me` | Metadata-only JSON snapshot (account labels/hosts, folder names, message counts - never credentials or message content) |
 
-Grows alongside actions/search/polish in a later stage — see
-[`Hof/ROADMAP.md`](https://github.com/zudaR107/Hof/blob/main/ROADMAP.md).
+See [`Hof/ROADMAP.md`](https://github.com/zudaR107/Hof/blob/main/ROADMAP.md) for
+the platform-wide picture.
 
 ## Local development
 
