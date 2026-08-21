@@ -199,7 +199,7 @@ describe('GET /folders/:folderId/messages', () => {
     const body = (await res.json()) as { messages: Array<Record<string, unknown>>; total: number }
     expect(body.total).toBe(1)
     expect(body.messages).toHaveLength(1)
-    const m = body.messages[0]
+    const m = body.messages[0]!
     expect(m).toMatchObject({
       id: 'msg-1',
       subject: 'Hello there',

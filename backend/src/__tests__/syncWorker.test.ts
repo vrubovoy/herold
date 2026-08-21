@@ -37,7 +37,7 @@ const {
   // Default: no messages. Each test overrides this with its own
   // implementation branching on `query.envelope` (full fetch) vs
   // flags-only fetch.
-  const fetchMock = vi.fn((_range: unknown, _query: unknown, _options?: unknown) => {
+  const fetchMock = vi.fn((_range: unknown, _query: Record<string, unknown>, _options?: unknown): AsyncGenerator<any, void, unknown> => {
     async function* empty() {}
     return empty()
   })
@@ -224,7 +224,7 @@ describe('folder listing / special-use mapping', () => {
 
     const folders = getFoldersForAccount('acc-1')
     expect(folders).toHaveLength(1)
-    expect(folders[0].special_use).toBe('inbox')
+    expect(folders[0]!.special_use).toBe('inbox')
   })
 
   it('maps \\Sent/\\Drafts/\\Trash/\\Junk to sent/drafts/trash/junk, and anything else (including undefined) to null', async () => {
@@ -285,8 +285,8 @@ describe('first-time folder + message sync', () => {
 
     const folders = getFoldersForAccount('acc-1')
     expect(folders).toHaveLength(1)
-    expect(Number(folders[0].uid_validity)).toBe(12345)
-    expect(folders[0].last_seen_uid).toBe(1) // uidNext(2) - 1
+    expect(Number(folders[0]!.uid_validity)).toBe(12345)
+    expect(folders[0]!.last_seen_uid).toBe(1) // uidNext(2) - 1
 
     // The new-message fetch requested the documented set of fields, uid-mode.
     const fullCall = fetchMock.mock.calls.find((c) => (c[1] as Record<string, unknown>)['envelope'])
@@ -296,13 +296,13 @@ describe('first-time folder + message sync', () => {
     })
     expect(fullCall![2]).toMatchObject({ uid: true })
 
-    const messages = getMessagesForFolder(folders[0].id)
+    const messages = getMessagesForFolder(folders[0]!.id)
     expect(messages).toHaveLength(1)
-    expect(messages[0].imap_uid).toBe(1)
-    expect(messages[0].subject).toBe('Test')
-    expect(messages[0].body_text).toContain('Hello world, this is the body.')
-    expect(Boolean(messages[0].flags_seen)).toBe(true)
-    expect(Boolean(messages[0].has_attachments)).toBe(false)
+    expect(messages[0]!.imap_uid).toBe(1)
+    expect(messages[0]!.subject).toBe('Test')
+    expect(messages[0]!.body_text).toContain('Hello world, this is the body.')
+    expect(Boolean(messages[0]!.flags_seen)).toBe(true)
+    expect(Boolean(messages[0]!.has_attachments)).toBe(false)
   })
 
   it('inserts a mail_attachment_refs row for a message whose bodyStructure has a real attachment leaf, and sets has_attachments', async () => {
@@ -329,12 +329,12 @@ describe('first-time folder + message sync', () => {
 
     await runOnePass()
 
-    const folder = getFoldersForAccount('acc-1')[0]
+    const folder = getFoldersForAccount('acc-1')[0]!
     const messages = getMessagesForFolder(folder.id)
     expect(messages).toHaveLength(1)
-    expect(Boolean(messages[0].has_attachments)).toBe(true)
+    expect(Boolean(messages[0]!.has_attachments)).toBe(true)
 
-    const refs = getAttachmentRefsForMessage(messages[0].id)
+    const refs = getAttachmentRefsForMessage(messages[0]!.id)
     expect(refs).toHaveLength(1)
     expect(refs[0]).toMatchObject({ filename: 'invoice.pdf', mime_type: 'application/pdf', part_id: '2' })
   })
@@ -368,11 +368,11 @@ describe('second pass: no duplicate re-insertion + flags refresh', () => {
 
     await runOnePass()
 
-    const folder = getFoldersForAccount('acc-1')[0]
+    const folder = getFoldersForAccount('acc-1')[0]!
     let messages = getMessagesForFolder(folder.id)
     expect(messages).toHaveLength(1)
-    expect(Boolean(messages[0].flags_seen)).toBe(false)
-    expect(messages[0].subject).toBe('Original subject')
+    expect(Boolean(messages[0]!.flags_seen)).toBe(false)
+    expect(messages[0]!.subject).toBe('Original subject')
 
     // Second pass: the new-message fetch yields nothing (no new UIDs); the
     // flags-only fetch for the already-known UID reports it now \Seen.
@@ -387,9 +387,9 @@ describe('second pass: no duplicate re-insertion + flags refresh', () => {
 
     messages = getMessagesForFolder(folder.id)
     expect(messages).toHaveLength(1) // no duplicate row for uid 1
-    expect(Boolean(messages[0].flags_seen)).toBe(true) // flags refreshed
-    expect(messages[0].subject).toBe('Original subject') // subject untouched
-    expect(messages[0].body_text).toContain('Original body text.') // body untouched
+    expect(Boolean(messages[0]!.flags_seen)).toBe(true) // flags refreshed
+    expect(messages[0]!.subject).toBe('Original subject') // subject untouched
+    expect(messages[0]!.body_text).toContain('Original body text.') // body untouched
 
     // The flags-only fetch requested exactly flags (and uid), not
     // envelope/source/bodyStructure.
@@ -437,15 +437,15 @@ describe('UIDVALIDITY change', () => {
 
     await runOnePass()
 
-    const folder = getFoldersForAccount(account.id)[0]
+    const folder = getFoldersForAccount(account.id)[0]!
     expect(Number(folder.uid_validity)).toBe(2000)
     expect(folder.last_seen_uid).toBe(50)
 
     const messages = getMessagesForFolder(folder.id)
     expect(messages.map((m) => m.id)).not.toContain('old-msg')
     expect(messages).toHaveLength(1)
-    expect(messages[0].imap_uid).toBe(50)
-    expect(messages[0].subject).toBe('Fresh after reset')
+    expect(messages[0]!.imap_uid).toBe(50)
+    expect(messages[0]!.subject).toBe('Fresh after reset')
 
     const flagsOnlyCalls = fetchMock.mock.calls.filter((c) => !(c[1] as Record<string, unknown>)['envelope'])
     expect(flagsOnlyCalls).toHaveLength(0)

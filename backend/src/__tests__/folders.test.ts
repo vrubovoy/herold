@@ -97,7 +97,7 @@ describe('GET /accounts/:accountId/folders', () => {
     expect(body[0]).toMatchObject({ id: folder.id, name: 'INBOX', specialUse: 'inbox' })
     expect(body[0]).toHaveProperty('createdAt')
 
-    const keys = Object.keys(body[0])
+    const keys = Object.keys(body[0]!)
     expect(keys).not.toContain('uidValidity')
     expect(keys).not.toContain('lastSeenUid')
     expect(keys).not.toContain('uid_validity')
@@ -128,6 +128,6 @@ describe('GET /accounts/:accountId/folders', () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as Array<Record<string, unknown>>
     expect(body).toHaveLength(1)
-    expect(body[0].id).toBe('folder-1')
+    expect(body[0]!.id).toBe('folder-1')
   })
 })
