@@ -139,6 +139,7 @@ export interface MailAttachment {
 
 export interface MailMessageDetail {
   id: string
+  messageId: string | null
   subject: string | null
   fromAddress: string | null
   fromName: string | null
@@ -186,4 +187,24 @@ export async function fetchAttachmentBlob(messageId: string, attachmentId: strin
   })
   if (!res.ok) throw new ApiError(res.status, await res.text())
   return res.blob()
+}
+
+export interface SendMailInput {
+  to: string[]
+  cc?: string[]
+  bcc?: string[]
+  subject?: string
+  bodyText: string
+  inReplyTo?: string
+}
+
+export interface SendMailResult {
+  ok: true
+  // Only populated once a Sent folder has been discovered by a prior
+  // sync pass - see the backend's own POST .../messages/send.
+  message: MailMessageSummary | null
+}
+
+export function sendMailMessage(accountId: string, input: SendMailInput): Promise<SendMailResult> {
+  return api.post(`/accounts/${encodeURIComponent(accountId)}/messages/send`, input)
 }

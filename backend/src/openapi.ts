@@ -159,6 +159,7 @@ const mailAddressSchema = z.object({ name: z.string().optional(), address: z.str
 const mailAttachmentSchema = z.object({ id: z.string(), filename: z.string(), mimeType: z.string(), sizeBytes: z.number().int() })
 const mailMessageDetailSchema = z.object({
   id: z.string(),
+  messageId: z.string().nullable(),
   subject: z.string().nullable(),
   fromAddress: z.string().nullable(),
   fromName: z.string().nullable(),
@@ -203,6 +204,31 @@ registry.registerPath({
     404: { description: 'Not found', content: { 'application/json': { schema: errorResponseSchema } } },
   },
 })
+const sendMessageRequestSchema = z.object({
+  to: z.array(z.email()).min(1).max(50),
+  cc: z.array(z.email()).max(50).optional(),
+  bcc: z.array(z.email()).max(50).optional(),
+  subject: z.string().max(500).optional(),
+  bodyText: z.string().min(1).max(200_000),
+  inReplyTo: z.string().max(1000).optional(),
+})
+const sendMessageResponseSchema = z.object({ ok: z.literal(true), message: mailMessageSummarySchema.nullable() })
+
+registry.registerPath({
+  method: 'post', path: '/accounts/{accountId}/messages/send', tags: ['mail'],
+  summary: 'Send a message via the account\'s SMTP settings', security: BEARER,
+  description: 'Best-effort mirrors the sent message into the local Sent folder and IMAP-APPENDs it to the server - `message` is null if no Sent folder has been discovered yet.',
+  request: {
+    params: z.object({ accountId: z.string() }),
+    body: { content: { 'application/json': { schema: sendMessageRequestSchema } } },
+  },
+  responses: {
+    201: { description: 'Sent', content: { 'application/json': { schema: sendMessageResponseSchema } } },
+    404: { description: 'Not found', content: { 'application/json': { schema: errorResponseSchema } } },
+    502: { description: 'The SMTP send itself failed', content: { 'application/json': { schema: errorResponseSchema } } },
+  },
+})
+
 registry.registerPath({
   method: 'get', path: '/messages/{id}/attachments/{attachmentId}', tags: ['mail'],
   summary: 'Stream an attachment', security: BEARER,

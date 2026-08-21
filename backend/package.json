@@ -24,12 +24,14 @@
     "hono": "^4.12.32",
     "imapflow": "^1.7.1",
     "mailparser": "^3.9.15",
+    "nodemailer": "^9.0.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/mailparser": "^3.4.6",
     "@types/node": "^26.1.0",
+    "@types/nodemailer": "^8.0.1",
     "@vitest/coverage-v8": "^4.1.10",
     "drizzle-kit": "^0.31.10",
     "oxlint": "^1.73.0",

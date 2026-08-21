@@ -49,13 +49,14 @@ This repo is a pnpm workspace with two packages:
 ## Status
 
 Platform wiring, mail account management (connect/edit/disconnect,
-"test connection" before saving, passwords encrypted at rest), and
-read-only IMAP sync: a background worker mirrors every connected
-account's folders and messages (headers + plain-text body, never raw
-HTML or attachment bytes) into the local database on a timer, and the
-UI reads that mirror - folder list, message list, message detail, with
-attachments streamed live from IMAP on demand rather than stored.
-Composing and sending mail are not implemented yet.
+"test connection" before saving, passwords encrypted at rest),
+read-only IMAP sync (a background worker mirrors every connected
+account's folders and messages - headers + plain-text body, never raw
+HTML or attachment bytes - into the local database on a timer, with
+attachments streamed live from IMAP on demand rather than stored), and
+composing/sending mail (new message, reply, reply-all, forward) via the
+account's own SMTP settings, with a best-effort local + IMAP-APPEND
+mirror into Sent.
 
 ## API
 
@@ -75,8 +76,9 @@ Composing and sending mail are not implemented yet.
 | `GET` | `/folders/:folderId/messages` | A folder's mirrored messages, newest first, paginated (`limit`/`offset`) |
 | `GET` | `/messages/:id` | A single message in full (headers + plain-text body + attachment list) |
 | `GET` | `/messages/:id/attachments/:attachmentId` | Streams an attachment's bytes live from IMAP - never stored locally |
+| `POST` | `/accounts/:accountId/messages/send` | Sends via the account's SMTP settings; best-effort mirrors into the local + real Sent folder |
 
-Grows alongside composing/sending in a later stage — see
+Grows alongside actions/search/polish in a later stage — see
 [`Hof/ROADMAP.md`](https://github.com/zudaR107/Hof/blob/main/ROADMAP.md).
 
 ## Local development

@@ -2,12 +2,14 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { Readable } from 'node:stream'
-import { eq, desc, sql } from 'drizzle-orm'
+import { eq, and, desc, sql } from 'drizzle-orm'
+import { createId } from '@paralleldrive/cuid2'
 import { db } from '../../db/index.js'
-import { mailMessages, mailAttachmentRefs, type MailMessage, type MailAttachmentRef } from '../../db/schema.js'
+import { mailFolders, mailMessages, mailAttachmentRefs, type MailMessage, type MailAttachmentRef } from '../../db/schema.js'
 import { requireAuth } from '../../middleware/auth.js'
-import { getOwnedFolder, getOwnedMessage } from '../../lib/mailOwnership.js'
-import { openAttachmentStream } from '../../lib/imapConnection.js'
+import { getOwnedAccount, getOwnedFolder, getOwnedMessage } from '../../lib/mailOwnership.js'
+import { openAttachmentStream, appendToSent } from '../../lib/imapConnection.js'
+import { sendMail } from '../../lib/mailSend.js'
 
 const router = new Hono()
 router.use('*', requireAuth)
@@ -15,6 +17,18 @@ router.use('*', requireAuth)
 const listQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
+})
+
+const emailSchema = z.string().trim().toLowerCase().email().max(320)
+const sendMessageSchema = z.object({
+  to: z.array(emailSchema).min(1).max(50),
+  cc: z.array(emailSchema).max(50).optional(),
+  bcc: z.array(emailSchema).max(50).optional(),
+  subject: z.string().trim().max(500).optional(),
+  bodyText: z.string().min(1).max(200_000),
+  // The message being replied to/forwarded from's own mirrored
+  // messageId (see mailMessages.messageId) - absent for a fresh compose.
+  inReplyTo: z.string().trim().max(1000).optional(),
 })
 
 // The list view - snippet, not the full body, matching an ordinary
@@ -36,6 +50,10 @@ function messageSummaryJson(message: MailMessage) {
 function messageDetailJson(message: MailMessage, attachments: MailAttachmentRef[]) {
   return {
     id: message.id,
+    // The RFC822 Message-ID header - exposed only here (never on the
+    // list view) so the frontend's reply/reply-all compose flow can send
+    // it back as In-Reply-To/References (see POST .../messages/send).
+    messageId: message.messageId,
     subject: message.subject,
     fromAddress: message.fromAddress,
     fromName: message.fromName,
@@ -106,6 +124,71 @@ router.get('/messages/:id/attachments/:attachmentId', async (c) => {
   } catch {
     return c.json({ error: 'Не удалось получить вложение' }, 502)
   }
+})
+
+// Sends via the account's own SMTP settings, then best-effort mirrors the
+// sent message into the local Sent folder (if one has been discovered by
+// a prior sync pass) and best-effort IMAP-APPENDs it to the real Sent
+// mailbox - see lib/mailSend.ts and lib/imapConnection.ts's appendToSent
+// for why both are separately "best-effort": the send itself already
+// succeeded by the time either of them runs, so neither failure is
+// reported back to the caller as an error.
+router.post('/accounts/:accountId/messages/send', zValidator('json', sendMessageSchema), async (c) => {
+  const user = c.get('user')
+  const { accountId } = c.req.param()
+  const account = getOwnedAccount(user.id, accountId)
+  if (!account) return c.json({ error: 'Not found' }, 404)
+
+  const body = c.req.valid('json')
+  let sent: Awaited<ReturnType<typeof sendMail>>
+  try {
+    sent = await sendMail(account, {
+      to: body.to, cc: body.cc, bcc: body.bcc,
+      subject: body.subject ?? '', bodyText: body.bodyText, inReplyTo: body.inReplyTo,
+    })
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : 'Не удалось отправить письмо' }, 502)
+  }
+
+  const sentFolder = db.select().from(mailFolders)
+    .where(and(eq(mailFolders.accountId, account.id), eq(mailFolders.specialUse, 'sent')))
+    .get()
+
+  let summary: ReturnType<typeof messageSummaryJson> | null = null
+  if (sentFolder) {
+    const id = createId()
+    const now = new Date()
+    db.insert(mailMessages).values({
+      id,
+      folderId: sentFolder.id,
+      // A synthetic, decreasing negative UID rather than a real IMAP one -
+      // this row didn't come from a FETCH. The next sync pass mirrors the
+      // server's own authoritative copy (with its own real, positive UID)
+      // independently; the (folderId, imapUid) unique index just needs
+      // *some* value guaranteed not to collide with a real one.
+      imapUid: -now.getTime(),
+      messageId: sent.messageId,
+      subject: body.subject || null,
+      fromAddress: account.fromEmail,
+      fromName: account.fromName,
+      toAddresses: JSON.stringify(body.to.map((address) => ({ address }))),
+      date: now,
+      snippet: body.bodyText.slice(0, 200),
+      bodyText: body.bodyText,
+      flagsSeen: true,
+      flagsFlagged: false,
+      flagsDeleted: false,
+      hasAttachments: false,
+      sizeBytes: sent.raw.byteLength,
+      createdAt: now,
+    }).run()
+    const row = db.select().from(mailMessages).where(eq(mailMessages.id, id)).get()
+    if (row) summary = messageSummaryJson(row)
+
+    void appendToSent(account, sentFolder.name, sent.raw).catch(() => {})
+  }
+
+  return c.json({ ok: true, message: summary }, 201)
 })
 
 export { router as messagesRouter }
