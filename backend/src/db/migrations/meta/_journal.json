@@ -22,6 +22,20 @@
       "when": 1787299863483,
       "tag": "0002_ancient_blade",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1787645464443,
+      "tag": "0003_glorious_mother_askani",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1787646460926,
+      "tag": "0004_many_rachel_grey",
+      "breakpoints": true
     }
   ]
 }

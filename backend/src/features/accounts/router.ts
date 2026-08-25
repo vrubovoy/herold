@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { eq, desc } from 'drizzle-orm'
 import { createId } from '@paralleldrive/cuid2'
 import { db } from '../../db/index.js'
-import { mailAccounts, type MailAccount } from '../../db/schema.js'
+import { mailAccounts, mailFolders, type MailAccount } from '../../db/schema.js'
 import { requireAuth } from '../../middleware/auth.js'
 import { decryptCredential, encryptCredential } from '../../lib/credentialCrypto.js'
 import { testImapConnection } from '../../lib/imapConnection.js'
@@ -29,6 +29,7 @@ const accountFieldsSchema = z.object({
   smtpPassword: z.string().min(1).max(1000),
   fromName: z.string().trim().min(1).max(200),
   fromEmail: z.string().trim().email().max(320),
+  sentFilingMode: z.enum(['provider', 'append']).default('provider'),
 })
 
 // Every field optional - a PATCH only touches what it sends. A password
@@ -43,6 +44,9 @@ const testConnectionSchema = z.object({
   imapSecurity: securitySchema,
   imapUsername: z.string().trim().min(1).max(255),
   imapPassword: z.string().min(1).max(1000),
+})
+const savedTestConnectionSchema = testConnectionSchema.omit({ imapPassword: true }).partial().extend({
+  imapPassword: z.string().min(1).max(1000).optional(),
 })
 
 // Never includes imap/smtpPasswordEncrypted - those are internal at
@@ -61,6 +65,7 @@ function mailAccountJson(account: MailAccount) {
     smtpUsername: account.smtpUsername,
     fromName: account.fromName,
     fromEmail: account.fromEmail,
+    sentFilingMode: account.sentFilingMode,
     syncState: account.syncState,
     lastSyncedAt: account.lastSyncedAt,
     lastError: account.lastError,
@@ -94,15 +99,19 @@ router.post('/test-connection', zValidator('json', testConnectionSchema), async 
 // a POST /accounts/test-connection call, and shouldn't; this decrypts
 // it server-side instead. Registered ahead of the plain GET/PATCH/DELETE
 // /:id routes for the same "test-connection isn't an :id" reason as above.
-router.post('/:id/test-connection', async (c) => {
+router.post('/:id/test-connection', zValidator('json', savedTestConnectionSchema), async (c) => {
   const user = c.get('user')
   const { id } = c.req.param()
   const account = getOwnedAccount(user.id, id)
   if (!account) return c.json({ error: 'Not found' }, 404)
 
+  const overrides = c.req.valid('json')
   const result = await testImapConnection({
-    host: account.imapHost, port: account.imapPort, security: account.imapSecurity,
-    username: account.imapUsername, password: decryptCredential(account.imapPasswordEncrypted),
+    host: overrides.imapHost ?? account.imapHost,
+    port: overrides.imapPort ?? account.imapPort,
+    security: overrides.imapSecurity ?? account.imapSecurity,
+    username: overrides.imapUsername ?? account.imapUsername,
+    password: overrides.imapPassword ?? decryptCredential(account.imapPasswordEncrypted),
   })
   return c.json(result)
 })
@@ -135,6 +144,7 @@ router.post('/', zValidator('json', accountFieldsSchema), (c) => {
     smtpPasswordEncrypted: encryptCredential(body.smtpPassword),
     fromName: body.fromName,
     fromEmail: body.fromEmail,
+    sentFilingMode: body.sentFilingMode,
     syncState: 'pending',
     lastSyncedAt: null,
     lastError: null,
@@ -149,7 +159,8 @@ router.patch('/:id', zValidator('json', updateSchema), (c) => {
   const { id } = c.req.param()
   const body = c.req.valid('json')
 
-  if (!getOwnedAccount(user.id, id)) return c.json({ error: 'Not found' }, 404)
+  const account = getOwnedAccount(user.id, id)
+  if (!account) return c.json({ error: 'Not found' }, 404)
 
   const updates: Partial<typeof mailAccounts.$inferInsert> = {}
   if (body.label !== undefined) updates.label = body.label
@@ -165,8 +176,22 @@ router.patch('/:id', zValidator('json', updateSchema), (c) => {
   if (body.smtpPassword !== undefined) updates.smtpPasswordEncrypted = encryptCredential(body.smtpPassword)
   if (body.fromName !== undefined) updates.fromName = body.fromName
   if (body.fromEmail !== undefined) updates.fromEmail = body.fromEmail
+  if (body.sentFilingMode !== undefined) updates.sentFilingMode = body.sentFilingMode
 
-  db.update(mailAccounts).set(updates).where(eq(mailAccounts.id, id)).run()
+  const imapChanged = body.imapHost !== undefined && body.imapHost !== account.imapHost
+    || body.imapPort !== undefined && body.imapPort !== account.imapPort
+    || body.imapSecurity !== undefined && body.imapSecurity !== account.imapSecurity
+    || body.imapUsername !== undefined && body.imapUsername !== account.imapUsername
+    || body.imapPassword !== undefined
+  db.transaction((tx) => {
+    if (imapChanged) {
+      tx.delete(mailFolders).where(eq(mailFolders.accountId, id)).run()
+      updates.syncState = 'pending'
+      updates.lastSyncedAt = null
+      updates.lastError = null
+    }
+    tx.update(mailAccounts).set(updates).where(eq(mailAccounts.id, id)).run()
+  })
   return c.json(mailAccountJson(getOwnedAccount(user.id, id)!))
 })
 

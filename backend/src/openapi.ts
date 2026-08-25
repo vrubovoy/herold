@@ -51,6 +51,7 @@ const mailAccountResponseSchema = z.object({
   smtpUsername: z.string(),
   fromName: z.string(),
   fromEmail: z.string(),
+  sentFilingMode: z.enum(['provider', 'append']),
   syncState: z.enum(['pending', 'ok', 'error']),
   lastSyncedAt: z.iso.datetime().nullable(),
   lastError: z.string().nullable(),
@@ -70,6 +71,7 @@ const mailAccountFieldsSchema = z.object({
   smtpPassword: z.string().min(1).max(1000),
   fromName: z.string().min(1).max(200),
   fromEmail: z.email().max(320),
+  sentFilingMode: z.enum(['provider', 'append']).optional().default('provider'),
 })
 const mailAccountUpdateSchema = mailAccountFieldsSchema.partial()
 const testConnectionRequestSchema = z.object({
@@ -83,6 +85,9 @@ const testConnectionResponseSchema = z.union([
   z.object({ ok: z.literal(true) }),
   z.object({ ok: z.literal(false), error: z.string() }),
 ])
+const savedTestConnectionRequestSchema = testConnectionRequestSchema.omit({ imapPassword: true }).partial().extend({
+  imapPassword: z.string().min(1).max(1000).optional(),
+})
 
 registry.registerPath({
   method: 'get', path: '/accounts', tags: ['accounts'], summary: "List the caller's connected mail accounts", security: BEARER,
@@ -98,7 +103,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'post', path: '/accounts/test-connection', tags: ['accounts'],
   summary: 'Verify IMAP credentials without saving them',
-  description: 'Opens a real IMAP connection, attempts LOGIN, and logs out immediately - never persists anything.',
+  description: 'Resolves and pins an operator-permitted public address, opens a real IMAP connection, attempts LOGIN, and logs out immediately - never persists anything.',
   security: BEARER,
   request: { body: { content: { 'application/json': { schema: testConnectionRequestSchema } } } },
   responses: {
@@ -108,9 +113,12 @@ registry.registerPath({
 registry.registerPath({
   method: 'post', path: '/accounts/{id}/test-connection', tags: ['accounts'],
   summary: "Re-verify a saved account's stored IMAP credential",
-  description: 'Same outcome shape as POST /accounts/test-connection, but decrypts and tests the already-stored password instead of one supplied in the request.',
+  description: 'Uses the stored password unless overridden and applies optional unsaved IMAP host, port, security, or username fields.',
   security: BEARER,
-  request: { params: z.object({ id: z.string() }) },
+  request: {
+    params: z.object({ id: z.string() }),
+    body: { content: { 'application/json': { schema: savedTestConnectionRequestSchema } } },
+  },
   responses: {
     200: { description: 'Connection attempt outcome', content: { 'application/json': { schema: testConnectionResponseSchema } } },
     404: { description: 'Not found', content: { 'application/json': { schema: errorResponseSchema } } },
@@ -126,7 +134,7 @@ registry.registerPath({
 })
 registry.registerPath({
   method: 'patch', path: '/accounts/{id}', tags: ['accounts'], summary: 'Update a mail account', security: BEARER,
-  description: 'Every field is optional - omitting a password field leaves the stored credential unchanged.',
+  description: 'Every field is optional. Omitting a password leaves it unchanged; changing any IMAP connection field atomically clears the old mirror and schedules a full resync.',
   request: { params: z.object({ id: z.string() }), body: { content: { 'application/json': { schema: mailAccountUpdateSchema } } } },
   responses: {
     200: { description: 'Updated account', content: { 'application/json': { schema: mailAccountResponseSchema } } },
@@ -254,7 +262,7 @@ const sendMessageResponseSchema = z.object({ ok: z.literal(true), message: mailM
 registry.registerPath({
   method: 'post', path: '/accounts/{accountId}/messages/send', tags: ['mail'],
   summary: 'Send a message via the account\'s SMTP settings', security: BEARER,
-  description: 'Best-effort mirrors the sent message into the local Sent folder and IMAP-APPENDs it to the server - `message` is null if no Sent folder has been discovered yet.',
+  description: 'Creates a pending local Sent row for Message-ID reconciliation. Provider-managed filing is the default; IMAP APPEND is used only when the account opts into append mode.',
   request: {
     params: z.object({ accountId: z.string() }),
     body: { content: { 'application/json': { schema: sendMessageRequestSchema } } },
@@ -269,11 +277,12 @@ registry.registerPath({
 registry.registerPath({
   method: 'get', path: '/messages/{id}/attachments/{attachmentId}', tags: ['mail'],
   summary: 'Stream an attachment', security: BEARER,
-  description: 'Never mirrored locally - opens a fresh IMAP connection per request and streams the bytes live.',
+  description: 'Never mirrored locally - opens a fresh IMAP connection per request and streams at most the configured attachment byte limit.',
   request: { params: z.object({ id: z.string(), attachmentId: z.string() }) },
   responses: {
     200: { description: 'Raw attachment bytes, with the stored Content-Type/filename' },
     404: { description: 'Not found', content: { 'application/json': { schema: errorResponseSchema } } },
+    413: { description: 'Attachment exceeds the configured limit', content: { 'application/json': { schema: errorResponseSchema } } },
     502: { description: 'Could not fetch the attachment from the IMAP server', content: { 'application/json': { schema: errorResponseSchema } } },
   },
 })

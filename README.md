@@ -51,13 +51,13 @@ This repo is a pnpm workspace with two packages:
 
 Platform wiring, mail account management (connect/edit/disconnect,
 "test connection" before saving, passwords encrypted at rest),
-read-only IMAP sync (a background worker mirrors every connected
-account's folders and messages - headers + plain-text body, never raw
+bounded IMAP sync (a background worker mirrors every connected
+account's folders and messages - headers + bounded plain-text body, never raw
 HTML or attachment bytes - into the local database on a timer, with
 attachments streamed live from IMAP on demand rather than stored),
 composing/sending mail (new message, reply, reply-all, forward) via the
-account's own SMTP settings, with a best-effort local + IMAP-APPEND
-mirror into Sent, and message actions/search: read/unread and
+account's own SMTP settings, with Message-ID reconciliation in Sent and
+provider-managed filing by default (optional IMAP APPEND), and message actions/search: read/unread and
 flag/star (written through to the real server before the local mirror
 updates), delete (moves to the account's Trash folder via IMAP `MOVE`,
 or permanently deletes in place if no Trash folder is known yet), and
@@ -126,6 +126,12 @@ exposes variables prefixed with `VITE_` to frontend code.
 | `HEROLD_ALLOWED_ORIGINS` | CORS allowlist passed to the backend by Docker Compose |
 | `HEROLD_CREDENTIAL_ENCRYPTION_KEY` | Encrypts stored IMAP/SMTP passwords at rest - a 32-byte base64 key, e.g. `openssl rand -base64 32` |
 | `HEROLD_SYNC_INTERVAL_MS` | How often the background sync worker polls connected accounts for new mail (default 180000 = 3 minutes) |
+| `HEROLD_OUTBOUND_HOST_ALLOWLIST` | Comma-separated exact or `*.suffix` hostnames allowed to resolve to non-public addresses |
+| `HEROLD_OUTBOUND_CIDR_ALLOWLIST` | Comma-separated IPv4/IPv6 CIDRs allowed for outbound IMAP/SMTP connections |
+| `HEROLD_MAX_MESSAGE_TEXT_BYTES` | Maximum plain-text bytes fetched per message (default 262144) |
+| `HEROLD_MAX_ACCOUNT_SYNC_BYTES` | Maximum text bytes fetched for one account per sync pass (default 26214400) |
+| `HEROLD_MAX_ACCOUNT_SYNC_MESSAGES` | Maximum UID span processed for one account per sync pass (default 1000) |
+| `HEROLD_MAX_ATTACHMENT_BYTES` | Maximum bytes streamed for one attachment (default 26214400) |
 | `SCHLUSSEL_WEB_URL` | Schlüssel browser URL baked into the frontend by Docker Compose |
 | `SCHLOSS_URL` | Schloss home URL baked into the frontend by Docker Compose |
 | `GLOCKE_URL` | Glocke URL baked into the frontend by Docker Compose (the shared notification bell) |
@@ -134,6 +140,21 @@ For a direct Vite build, the corresponding build-time variables are
 `VITE_SCHLUSSEL_URL`, `VITE_SCHLOSS_URL`, and `VITE_GLOCKE_URL`; their
 local defaults are `http://localhost:4001`, `http://localhost:3000`, and
 `http://localhost:5177`, respectively.
+
+Mail hostnames are resolved before every new IMAP or SMTP connection. Every
+answer must be public or operator-allowlisted, and the selected address is
+pinned into the socket lookup to prevent DNS rebinding. `starttls` requires a
+successful upgrade before authentication; `none` explicitly disables it.
+
+## Account deletion saga hook
+
+Herold currently supports user-initiated disconnection of individual mail
+accounts. It does not expose a service tombstone endpoint for platform account
+deletion because no trusted Schlussel saga producer or service-to-service
+authentication contract exists yet. The additive integration hook and
+idempotency requirements are documented in
+[`docs/account-deletion-saga.md`](docs/account-deletion-saga.md); no cross-repo
+producer is introduced by this change.
 
 ## Running with Docker
 

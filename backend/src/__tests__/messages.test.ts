@@ -3,6 +3,9 @@ import { Readable } from 'node:stream'
 
 vi.mock('../db/index.js', async () => await import('./helpers/db.js'))
 vi.mock('../middleware/auth.js', async () => await import('./helpers/auth-mock.js'))
+vi.mock('../lib/outboundResolver.js', () => ({
+  resolveOutboundHost: vi.fn(async () => ({ address: '203.0.113.1', family: 4, lookup: vi.fn() })),
+}))
 
 // Same vi.hoisted + vi.mock('imapflow', ...) pattern accounts.test.ts uses,
 // extended with getMailboxLock/download/logout for the attachment-streaming
@@ -334,7 +337,7 @@ describe('GET /messages/:id', () => {
     const json = JSON.stringify(body)
     expect(json).not.toContain('part_id')
     expect(json).not.toContain('partId')
-    expect(json).not.toContain('2.1')
+    expect(Object.keys((body.attachments as Array<Record<string, unknown>>)[0]!)).not.toContain('partId')
   })
 
   it('returns an empty attachments array when the message has no attachment refs', async () => {
@@ -390,7 +393,15 @@ describe('GET /messages/:id/attachments/:attachmentId', () => {
     expect(res.headers.get('content-disposition')).toContain('invoice.pdf')
 
     expect(ImapFlowMock).toHaveBeenCalled()
-    expect(downloadMock).toHaveBeenCalledWith(555, '2.1', expect.anything())
+    expect(downloadMock).toHaveBeenCalledWith(555, '2.1', { uid: true, maxBytes: 25 * 1024 * 1024 })
+  })
+
+  it('rejects an attachment declared above the streaming limit before connecting', async () => {
+    sqlite.prepare('UPDATE mail_attachment_refs SET size_bytes = ? WHERE id = ?')
+      .run(25 * 1024 * 1024 + 1, 'att-1')
+    const res = await get('/messages/msg-1/attachments/att-1', H1)
+    expect(res.status).toBe(413)
+    expect(connectMock).not.toHaveBeenCalled()
   })
 
   it('returns a >= 400 JSON error response (not a hang/crash) when connect() rejects', async () => {

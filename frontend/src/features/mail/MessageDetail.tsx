@@ -3,7 +3,7 @@ import {
   ArrowLeft, CornerUpLeft, CornerUpRight, Download, Forward, MailOpen,
   Paperclip, Star, Trash2,
 } from 'lucide-react'
-import { downloadBlob, formatDate } from '@zudar107/schloss-ui'
+import { downloadBlob, formatDate, Modal } from '@zudar107/schloss-ui'
 import { useToast } from '../../hooks/useToast'
 import { fetchAttachmentBlob, type MailMessageDetail } from '../../lib/api'
 import type { ComposeMode } from './ComposeModal'
@@ -40,6 +40,7 @@ export function MessageDetail({ message, onBack, onCompose, onMarkUnread, onTogg
 }) {
   const toast = useToast()
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   async function handleDownload(attachmentId: string, filename: string) {
     setDownloadingId(attachmentId)
@@ -76,7 +77,7 @@ export function MessageDetail({ message, onBack, onCompose, onMarkUnread, onTogg
           <button type="button" onClick={onMarkUnread} className="btn-ghost" style={{ border: '1px solid var(--border)' }}>
             <MailOpen size={14} />Непрочитано
           </button>
-          <button type="button" onClick={onDelete} className="btn-ghost" style={{ border: '1px solid var(--danger)', color: 'var(--danger)' }}>
+          <button type="button" onClick={() => setConfirmDelete(true)} className="btn-ghost" style={{ border: '1px solid var(--danger)', color: 'var(--danger)' }}>
             <Trash2 size={14} />Удалить
           </button>
         </div>
@@ -127,6 +128,17 @@ export function MessageDetail({ message, onBack, onCompose, onMarkUnread, onTogg
           {message.bodyText || '(пустое письмо)'}
         </pre>
       </div>
+      <Modal
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        title="Удалить письмо?"
+        actions={[
+          { label: 'Отмена', onClick: () => setConfirmDelete(false), variant: 'secondary' },
+          { label: 'Удалить', onClick: () => { setConfirmDelete(false); onDelete() }, variant: 'danger' },
+        ]}
+      >
+        Письмо будет перемещено в корзину почтового аккаунта. Если корзина недоступна, удаление будет окончательным.
+      </Modal>
     </div>
   )
 }

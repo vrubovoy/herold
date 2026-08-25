@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  AlertOctagon, FileEdit, Folder as FolderIcon, Inbox as InboxIcon,
+  AlertOctagon, ChevronLeft, ChevronRight, FileEdit, Folder as FolderIcon, Inbox as InboxIcon,
   PenSquare, Paperclip, RefreshCw, Search, Send, Star, Trash2, X,
 } from 'lucide-react'
 import { EmptyState, formatDate } from '@zudar107/schloss-ui'
@@ -56,7 +56,8 @@ function quoteBody(message: MailMessageDetail): string {
 // Account/folder/message selection lives in the URL (same convention as
 // Schrank's own ?folder=), not component state - a shared link or
 // browser back/forward lands on the exact same view.
-type MailSearch = { account?: string; folder?: string; message?: string; q?: string }
+type MailSearch = { account?: string; folder?: string; message?: string; q?: string; page?: number }
+const PAGE_SIZE = 50
 
 export function MailPage() {
   const navigate = useNavigate()
@@ -80,10 +81,13 @@ export function MailPage() {
 
   const folderId = search.folder ?? folders.find((f) => f.specialUse === 'inbox')?.id ?? folders[0]?.id ?? null
   const q = search.q ?? ''
+  const page = Number.isInteger(Number(search.page)) && Number(search.page) > 0 ? Number(search.page) : 1
 
   const { data: messagesPage, isLoading: messagesLoading, isError: messagesError, refetch: refetchMessages } = useQuery({
-    queryKey: ['mail-messages', folderId, q],
-    queryFn: () => getFolderMessages(folderId!, q ? { q } : undefined),
+    queryKey: ['mail-messages', folderId, q, page],
+    queryFn: () => getFolderMessages(folderId!, q || page > 1
+      ? { q: q || undefined, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }
+      : undefined),
     enabled: !!folderId,
   })
 
@@ -120,7 +124,7 @@ export function MailPage() {
     onSuccess: () => {
       invalidateMessages()
       toast.showSuccess('Письмо удалено')
-      goTo({ account: accountId ?? undefined, folder: folderId ?? undefined, q: q || undefined })
+      goTo({ account: accountId ?? undefined, folder: folderId ?? undefined, q: q || undefined, page: page > 1 ? page : undefined })
     },
     onError: () => toast.showError('Не удалось удалить письмо'),
   })
@@ -247,11 +251,11 @@ export function MailPage() {
           ) : (
             <MessageDetail
               message={message}
-              onBack={() => goTo({ account: accountId!, folder: folderId!, q: q || undefined })}
+               onBack={() => goTo({ account: accountId!, folder: folderId!, q: q || undefined, page: page > 1 ? page : undefined })}
               onCompose={openCompose}
               onMarkUnread={() => {
                 flagsMutation.mutate({ id: message.id, flags: { flagsSeen: false } })
-                goTo({ account: accountId!, folder: folderId!, q: q || undefined })
+                 goTo({ account: accountId!, folder: folderId!, q: q || undefined, page: page > 1 ? page : undefined })
               }}
               onToggleFlag={() => flagsMutation.mutate({ id: message.id, flags: { flagsFlagged: !message.flagsFlagged } })}
               onDelete={() => deleteMutation.mutate(message.id)}
@@ -325,11 +329,34 @@ export function MailPage() {
                   <MessageRow
                     key={m.id}
                     message={m}
-                    onOpen={() => goTo({ account: accountId!, folder: folderId!, message: m.id, q: q || undefined })}
+                   onOpen={() => goTo({ account: accountId!, folder: folderId!, message: m.id, q: q || undefined, page: page > 1 ? page : undefined })}
                     onToggleFlag={() => flagsMutation.mutate({ id: m.id, flags: { flagsFlagged: !m.flagsFlagged } })}
                   />
                 ))}
-              </div>
+               </div>
+             )}
+            {!messagesLoading && !messagesError && messagesPage && messagesPage.total > PAGE_SIZE && (
+              <nav aria-label="Страницы писем" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.75rem' }}>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  disabled={page <= 1}
+                  onClick={() => goTo({ account: accountId!, folder: folderId!, q: q || undefined, page: page - 1 > 1 ? page - 1 : undefined })}
+                >
+                  <ChevronLeft size={16} />Назад
+                </button>
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
+                  Страница {page} из {Math.ceil(messagesPage.total / PAGE_SIZE)}
+                </span>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  disabled={page * PAGE_SIZE >= messagesPage.total}
+                  onClick={() => goTo({ account: accountId!, folder: folderId!, q: q || undefined, page: page + 1 })}
+                >
+                  Вперёд<ChevronRight size={16} />
+                </button>
+              </nav>
             )}
           </>
         )}

@@ -286,6 +286,9 @@ describe('POST /accounts/:accountId/messages/send', () => {
     expect(detail.fromName).toBe('Me')
     expect(detail.flagsSeen).toBe(true)
     expect(detail.flagsFlagged).toBe(false)
+    expect(sqlite.prepare('SELECT reconciliation_state FROM mail_messages WHERE id = ?').get(summary.id))
+      .toMatchObject({ reconciliation_state: 'pending' })
+    expect(appendToSentMock).not.toHaveBeenCalled()
   })
 
   it('stores a null/empty subject when the request omits it', async () => {
@@ -300,6 +303,7 @@ describe('POST /accounts/:accountId/messages/send', () => {
 
   it('calls sendMail with the account and mail fields, and appendToSent with the Sent folder name and raw bytes', async () => {
     insertAccount()
+    sqlite.prepare("UPDATE mail_accounts SET sent_filing_mode = 'append' WHERE id = 'acc-1'").run()
     const sentFolder = insertFolder({ id: 'folder-sent', accountId: 'acc-1', name: 'Sent', specialUse: 'sent' })
     sendMailMock.mockResolvedValueOnce({ messageId: '<abc123@test>', raw: Buffer.from('specific raw bytes') })
 

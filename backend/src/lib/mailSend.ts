@@ -1,8 +1,10 @@
 import nodemailer from 'nodemailer'
 import MailComposer from 'nodemailer/lib/mail-composer/index.js'
 import { randomUUID } from 'node:crypto'
+import { isIP } from 'node:net'
 import type { MailAccount } from '../db/schema.js'
 import { decryptCredential } from './credentialCrypto.js'
+import { resolveOutboundHost } from './outboundResolver.js'
 
 export interface OutgoingMail {
   to: string[]
@@ -32,10 +34,14 @@ export interface SentMail {
 // this same three-way split), can actually force a truly-plaintext-only
 // connection - 'none' maps to `ignoreTLS: true` rather than sharing
 // 'starttls''s opportunistic-upgrade behavior.
-function transportOptions(account: MailAccount) {
+async function transportOptions(account: MailAccount) {
+  const resolved = await resolveOutboundHost(account.smtpHost)
   const auth = { user: account.smtpUsername, pass: decryptCredential(account.smtpPasswordEncrypted) }
   const base = {
-    host: account.smtpHost, port: account.smtpPort, auth,
+    // Nodemailer performs its own DNS resolution before opening a socket,
+    // so pass the validated address as the host and retain the operator's
+    // hostname only for certificate verification/SNI.
+    host: resolved.address, port: account.smtpPort, auth,
     connectionTimeout: 20_000, greetingTimeout: 20_000,
     // nodemailer's own default (no cap - effectively unbounded) leaves a
     // stalled connection hanging for a very long time if the server
@@ -44,6 +50,7 @@ function transportOptions(account: MailAccount) {
     // "Отправка…" button that never resolves reads as the app being
     // frozen, not as a slow server. dnsTimeout guards the lookup itself.
     socketTimeout: 20_000, dnsTimeout: 20_000,
+    tls: { servername: isIP(account.smtpHost.replace(/^\[|\]$/g, '')) ? undefined : account.smtpHost },
   }
   switch (account.smtpSecurity) {
     case 'tls': return { ...base, secure: true }
@@ -62,6 +69,7 @@ export function localizeSmtpError(error: unknown): string {
     if (code === 'ECONNECTION') return 'Не удалось подключиться к SMTP-серверу - проверьте адрес и порт'
     if (code === 'EDNS') return 'SMTP-сервер не найден - проверьте адрес'
     if (code === 'EENVELOPE') return 'Некорректный адрес отправителя или получателя'
+    if (code === 'EOUTBOUND') return 'Адрес SMTP-сервера запрещён политикой безопасности'
   }
   return 'Не удалось отправить письмо. Проверьте настройки SMTP, логин и пароль'
 }
@@ -87,7 +95,7 @@ export async function sendMail(account: MailAccount, mail: OutgoingMail): Promis
   // we later APPEND to Sent are exactly what went out over SMTP.
   const raw = await new MailComposer(mailOptions).compile().build()
 
-  const transport = nodemailer.createTransport(transportOptions(account))
+  const transport = nodemailer.createTransport(await transportOptions(account))
   try {
     await transport.sendMail({
       raw,

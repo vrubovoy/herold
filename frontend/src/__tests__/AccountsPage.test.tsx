@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AccountsPage } from '../features/accounts/AccountsPage'
@@ -10,12 +10,17 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => mockNavigate,
   useSearch: () => mockUseSearch(),
 }))
+vi.mock('@zudar107/schloss-ui', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@zudar107/schloss-ui')>()),
+  downloadBlob: vi.fn(),
+}))
 
 vi.mock('../lib/api', () => ({
   getMailAccounts: vi.fn(),
   createMailAccount: vi.fn(),
   updateMailAccount: vi.fn(),
   deleteMailAccount: vi.fn(),
+  fetchMyExportBlob: vi.fn(),
   testImapConnection: vi.fn(),
   testSavedMailAccountConnection: vi.fn(),
 }))
@@ -25,6 +30,7 @@ import {
   createMailAccount,
   updateMailAccount,
   deleteMailAccount,
+  fetchMyExportBlob,
   type MailAccount,
 } from '../lib/api'
 
@@ -51,6 +57,7 @@ const sampleAccount: MailAccount = {
   fromName: 'User Name',
   fromEmail: 'user@example.com',
   syncState: 'pending',
+  sentFilingMode: 'provider',
   lastSyncedAt: null,
   lastError: null,
   createdAt: '2026-08-19T10:00:00.000Z',
@@ -69,8 +76,21 @@ beforeEach(() => {
   vi.mocked(createMailAccount).mockReset()
   vi.mocked(updateMailAccount).mockReset()
   vi.mocked(deleteMailAccount).mockReset()
+  vi.mocked(fetchMyExportBlob).mockReset()
   mockNavigate.mockReset()
   mockUseSearch.mockReturnValue({})
+})
+
+describe('AccountsPage — direct export', () => {
+  it('starts an authenticated export from the visible export action', async () => {
+    const user = userEvent.setup()
+    vi.mocked(getMailAccounts).mockResolvedValue([sampleAccount])
+    vi.mocked(fetchMyExportBlob).mockResolvedValue(new Blob(['{}'], { type: 'application/json' }))
+    render(<AccountsPage />, { wrapper: createWrapper() })
+
+    await user.click(await screen.findByRole('button', { name: /экспорт данных/i }))
+    await waitFor(() => expect(fetchMyExportBlob).toHaveBeenCalledTimes(1))
+  })
 })
 
 async function waitForLoadingToFinish() {
@@ -242,6 +262,8 @@ describe('AccountsPage — delete', () => {
 
     const deleteButton = screen.getByRole('button', { name: /Отключ|Удал/i })
     await user.click(deleteButton)
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: /^отключить$/i }))
 
     await waitFor(() => expect(deleteMailAccount).toHaveBeenCalledWith(sampleAccount.id))
   })

@@ -2,6 +2,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 vi.mock('../db/index.js', async () => await import('./helpers/db.js'))
 vi.mock('../middleware/auth.js', async () => await import('./helpers/auth-mock.js'))
+vi.mock('../lib/outboundResolver.js', () => ({
+  resolveOutboundHost: vi.fn(async () => ({ address: '203.0.113.1', family: 4, lookup: vi.fn() })),
+}))
 
 // Mocked at the module level so POST /accounts/test-connection and
 // POST /accounts/:id/test-connection never open a real network
@@ -304,6 +307,24 @@ describe('PATCH /accounts/:id', () => {
     const body = await res.json()
     assertNoPasswordLeak(body, ['super-secret-imap-pw', 'super-secret-smtp-pw'])
   })
+
+  it('atomically clears the old mirror and resets sync state when IMAP settings change', async () => {
+    const created = await createAccount()
+    sqlite.prepare(
+      'INSERT INTO mail_folders (id, account_id, name, uid_validity, last_seen_uid, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run('folder-old', created.id, 'INBOX', 1, 4, Date.now())
+    sqlite.prepare(
+      `INSERT INTO mail_messages (
+        id, folder_id, imap_uid, to_addresses, date, snippet, body_text, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run('message-old', 'folder-old', 4, '[]', Date.now(), 'old', 'old', Date.now())
+
+    const res = await patch(`/accounts/${created.id}`, { imapHost: 'new-imap.example.com' }, H1)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ imapHost: 'new-imap.example.com', syncState: 'pending', lastSyncedAt: null })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM mail_folders WHERE account_id = ?').get(created.id))
+      .toMatchObject({ count: 0 })
+  })
 })
 
 describe('DELETE /accounts/:id', () => {
@@ -359,6 +380,14 @@ describe('POST /accounts/test-connection', () => {
     const res = await post('/accounts/test-connection', testConnBody, H1)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: true })
+  })
+
+  it('maps STARTTLS to a mandatory upgrade and none to an explicit plaintext connection', async () => {
+    await post('/accounts/test-connection', { ...testConnBody, imapSecurity: 'starttls' }, H1)
+    expect(ImapFlowMock.mock.calls.at(-1)?.[0]).toMatchObject({ secure: false, doSTARTTLS: true })
+
+    await post('/accounts/test-connection', { ...testConnBody, imapSecurity: 'none' }, H1)
+    expect(ImapFlowMock.mock.calls.at(-1)?.[0]).toMatchObject({ secure: false, doSTARTTLS: false })
   })
 
   it('returns 200 { ok: false, error } (not a 4xx/5xx) when the mocked ImapFlow connect() rejects', async () => {
@@ -437,5 +466,18 @@ describe('POST /accounts/:id/test-connection', () => {
     expect(body.ok).toBe(false)
     expect(typeof body.error).toBe('string')
     expect((body.error ?? '').length).toBeGreaterThan(0)
+  })
+
+  it('tests unsaved IMAP overrides while retaining the stored password', async () => {
+    const created = await createAccount()
+    const res = await post(`/accounts/${created.id}/test-connection`, {
+      imapHost: 'override.example.com', imapPort: 143,
+      imapSecurity: 'starttls', imapUsername: 'override-user@example.com',
+    }, H1)
+    expect(res.status).toBe(200)
+    expect(ImapFlowMock.mock.calls.at(-1)?.[0]).toMatchObject({
+      host: 'override.example.com', port: 143, doSTARTTLS: true,
+      auth: { user: 'override-user@example.com' },
+    })
   })
 })

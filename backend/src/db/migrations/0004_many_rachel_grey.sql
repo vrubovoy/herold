@@ -1,0 +1,1 @@
+ALTER TABLE `mail_folders` ADD `reconcile_cursor` integer DEFAULT 0 NOT NULL;

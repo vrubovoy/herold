@@ -10,9 +10,11 @@ import { requireAuth } from '../../middleware/auth.js'
 import { getOwnedAccount, getOwnedFolder, getOwnedMessage } from '../../lib/mailOwnership.js'
 import { openAttachmentStream, appendToSent, setMessageFlags, removeMessage, localizeImapError } from '../../lib/imapConnection.js'
 import { sendMail, localizeSmtpError } from '../../lib/mailSend.js'
+import { positiveIntegerEnv } from '../../lib/limits.js'
 
 const router = new Hono()
 router.use('*', requireAuth)
+const MAX_ATTACHMENT_BYTES = positiveIntegerEnv('HEROLD_MAX_ATTACHMENT_BYTES', 25 * 1024 * 1024)
 
 const listQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
@@ -131,9 +133,14 @@ router.get('/messages/:id/attachments/:attachmentId', async (c) => {
     .where(eq(mailAttachmentRefs.id, attachmentId))
     .get()
   if (!attachment || attachment.messageId !== id) return c.json({ error: 'Not found' }, 404)
+  if (attachment.sizeBytes > MAX_ATTACHMENT_BYTES) {
+    return c.json({ error: 'Вложение превышает допустимый размер' }, 413)
+  }
 
   try {
-    const download = await openAttachmentStream(owned.account, owned.folder.name, owned.message.imapUid, attachment.partId)
+    const download = await openAttachmentStream(
+      owned.account, owned.folder.name, owned.message.imapUid, attachment.partId, MAX_ATTACHMENT_BYTES,
+    )
     download.content.once('end', download.close)
     download.content.once('error', download.close)
 
@@ -208,13 +215,9 @@ router.delete('/messages/:id', async (c) => {
   return c.json({ ok: true })
 })
 
-// Sends via the account's own SMTP settings, then best-effort mirrors the
-// sent message into the local Sent folder (if one has been discovered by
-// a prior sync pass) and best-effort IMAP-APPENDs it to the real Sent
-// mailbox - see lib/mailSend.ts and lib/imapConnection.ts's appendToSent
-// for why both are separately "best-effort": the send itself already
-// succeeded by the time either of them runs, so neither failure is
-// reported back to the caller as an error.
+// Sends via SMTP and creates a pending local Sent row for Message-ID
+// reconciliation. Provider-managed filing is the default; append-mode
+// accounts additionally perform a best-effort IMAP APPEND.
 router.post('/accounts/:accountId/messages/send', zValidator('json', sendMessageSchema), async (c) => {
   const user = c.get('user')
   const { accountId } = c.req.param()
@@ -262,12 +265,15 @@ router.post('/accounts/:accountId/messages/send', zValidator('json', sendMessage
       flagsDeleted: false,
       hasAttachments: false,
       sizeBytes: sent.raw.byteLength,
+      reconciliationState: 'pending',
       createdAt: now,
     }).run()
     const row = db.select().from(mailMessages).where(eq(mailMessages.id, id)).get()
     if (row) summary = messageSummaryJson(row)
 
-    void appendToSent(account, sentFolder.name, sent.raw).catch(() => {})
+    if (account.sentFilingMode === 'append') {
+      void appendToSent(account, sentFolder.name, sent.raw).catch(() => {})
+    }
   }
 
   return c.json({ ok: true, message: summary }, 201)
