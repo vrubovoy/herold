@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Gate GHCR publishing on successful tests, publish under `vrubovoy`, and run
+  CI on the production Node 22 runtime.
 - Add the durable Schlussel account-deletion consumer, permanent user
   tombstones, and atomic mail mirror and credential purge.
 - Restrict and pin outbound IMAP/SMTP DNS resolution with operator allowlists.
