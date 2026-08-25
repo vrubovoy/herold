@@ -15,6 +15,7 @@ import { exportsRouter } from './features/exports/router.js'
 import { requireAuth, requireAdmin } from './middleware/auth.js'
 import { openApiDocument } from './openapi.js'
 import { startMailSyncWorker } from './sync/worker.js'
+import { deletionsRouter } from './features/deletions/router.js'
 
 // Resolved relative to this file so it works both in dev (src/index.ts,
 // migrations at src/db/migrations) and in the compiled build
@@ -57,6 +58,7 @@ app.route('/accounts', accountsRouter)
 // foldersRouter's/messagesRouter's plain requireAuth (which doesn't
 // understand export delegation tokens) intercepts and 401s it first.
 app.route('/exports', exportsRouter)
+app.route('/internal/v1', deletionsRouter)
 // Both mounted at root, not '/accounts' or '/folders' - their own
 // internal routes already spell out the full path (e.g.
 // '/accounts/:accountId/folders', '/folders/:folderId/messages')

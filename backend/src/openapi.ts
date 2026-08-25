@@ -18,6 +18,10 @@ registry.registerComponent('securitySchemes', 'exportDelegationAuth', {
   type: 'http', scheme: 'bearer', bearerFormat: 'JWT',
   description: 'Schlüssel export delegation scoped to audience hof-service:herold and data:export.',
 })
+registry.registerComponent('securitySchemes', 'deletionAuth', {
+  type: 'http', scheme: 'bearer', bearerFormat: 'JWT',
+  description: 'Short-lived Schlüssel deletion token with exact hof-deletion:herold audience and account:delete scope.',
+})
 
 const BEARER = [{ bearerAuth: [] }]
 
@@ -320,6 +324,12 @@ registry.registerPath({
     },
     401: { description: 'Missing, invalid, expired, or incorrectly scoped token', content: { 'application/json': { schema: errorResponseSchema } } },
   },
+})
+
+registry.registerPath({
+  method: 'post', path: '/internal/v1/account-deletions', tags: ['internal'], summary: 'Idempotently purge a deleted account and mail mirror',
+  security: [{ deletionAuth: [] }], request: { body: { content: { 'application/json': { schema: z.object({ jobId: z.string(), userId: z.string() }).strict() } } } },
+  responses: { 200: { description: 'Deletion completed or exact replay accepted' }, 401: { description: 'Invalid deletion token' }, 409: { description: 'Deletion identity conflict' } },
 })
 
 export const openApiDocument = new OpenApiGeneratorV3(registry.definitions).generateDocument({

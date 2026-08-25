@@ -15,6 +15,19 @@ export const users = sqliteTable('users', {
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
 
+export const userTombstones = sqliteTable('user_tombstones', {
+  userId: text('user_id').primaryKey(),
+  deletionJobId: text('deletion_job_id').notNull().unique(),
+  deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export const deletionJobs = sqliteTable('deletion_jobs', {
+  jobId: text('job_id').primaryKey(),
+  userId: text('user_id').notNull(),
+  tokenId: text('token_id').notNull(),
+  completedAt: integer('completed_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
 export type User = typeof users.$inferSelect
 
 // ── Mail accounts ───────────────────────────────────────────────────
