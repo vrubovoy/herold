@@ -1,21 +1,11 @@
-# Account deletion saga hook
+# Account deletion consumer
 
-Herold must not infer platform account deletion from a normal user request.
-The current Schlossel token contract has no trusted deletion-event producer,
-so adding a public tombstone endpoint now would weaken authorization rather
-than provide a safe additive integration.
+`POST /internal/v1/account-deletions` accepts only a short-lived Schlussel
+RS256 token with exact `hof-deletion:herold` audience, deletion token use and
+scope, and subject/job claims matching the strict request body.
 
-A later account-saga pass can add an internal endpoint with this contract:
-
-- authenticate a dedicated service audience and `account:delete` scope;
-- accept the Schlossel user ID plus a stable saga event ID;
-- insert an event-ID tombstone and delete the user's Herold rows in one
-  transaction;
-- return success when the same event ID is replayed;
-- retain no IMAP/SMTP credentials or mirrored message data after commit;
-- expose completion to the saga producer without requiring a user session.
-
-The natural implementation point is a new router mounted before the root mail
-routers in `backend/src/index.ts`. Until trusted producer authentication is
-available, `DELETE /accounts/:id` remains limited to disconnecting one external
-mail account owned by the authenticated user.
+One transaction records the immutable job and permanent tombstone, then
+cascade-purges encrypted account credentials, folders, message bodies,
+attachment references, and sync state with the local user. Exact replay
+succeeds and mismatched job or subject identities conflict. Tombstones prevent
+still-valid access tokens from recreating the deleted mail mirror.

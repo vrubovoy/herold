@@ -2,7 +2,7 @@ import { createAuthMiddleware, createExportAuthMiddleware } from '@zudar107/schl
 import type { AuthUser } from '@zudar107/schloss-server-kit'
 import { eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { users } from '../db/schema.js'
+import { users, userTombstones } from '../db/schema.js'
 
 export type { AuthUser }
 
@@ -15,15 +15,20 @@ export const { requireAuth, requireAdmin } = createAuthMiddleware({
   // Auto-provision a local user row on first sight - Herold stores only
   // the user id from the JWT, no passwords here.
   onUserSeen: async (user) => {
-    const existing = await db.select().from(users).where(eq(users.id, user.id)).get()
-    if (!existing) {
-      await db.insert(users).values({
+    const deleted = db.transaction((tx) => {
+      const tombstone = tx.select({ userId: userTombstones.userId })
+        .from(userTombstones).where(eq(userTombstones.userId, user.id)).get()
+      if (tombstone) return true
+      const existing = tx.select().from(users).where(eq(users.id, user.id)).get()
+      if (!existing) tx.insert(users).values({
         id: user.id,
         email: user.email,
         name: user.name,
         createdAt: new Date(),
-      })
-    }
+      }).run()
+      return false
+    })
+    if (deleted) throw new Error('Deleted account')
   },
 })
 
