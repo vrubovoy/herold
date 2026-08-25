@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Inbox, Plus, RefreshCw, Trash2 } from 'lucide-react'
-import { Button, EmptyState, Toast } from '@zudar107/schloss-ui'
+import { Download, Inbox, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { Button, downloadBlob, EmptyState, Modal, Toast } from '@zudar107/schloss-ui'
 import { HeroIllustration } from '../../components/HeroIllustration'
 import { useToast } from '../../hooks/useToast'
 import { AccountFormModal } from './AccountFormModal'
 import {
-  ApiError, createMailAccount, deleteMailAccount, getMailAccounts, updateMailAccount,
+  ApiError, createMailAccount, deleteMailAccount, fetchMyExportBlob, getMailAccounts, updateMailAccount,
   type MailAccount, type MailAccountFields, type MailAccountUpdate,
 } from '../../lib/api'
 
@@ -27,6 +27,19 @@ export function AccountsPage() {
   const search = useSearch({ strict: false }) as { new?: boolean }
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<MailAccount | undefined>(undefined)
+  const [exporting, setExporting] = useState(false)
+  const [deleting, setDeleting] = useState<MailAccount | null>(null)
+
+  async function handleExport() {
+    setExporting(true)
+    try {
+      downloadBlob(await fetchMyExportBlob(), `herold-export-${new Date().toISOString().slice(0, 10)}.json`)
+    } catch {
+      toast.showError('Не удалось экспортировать данные')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const { data: accounts = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['accounts'],
@@ -119,9 +132,14 @@ export function AccountsPage() {
             Внешние почтовые аккаунты, подключённые по IMAP/SMTP
           </p>
         </div>
-        <Button variant="primary" onClick={openCreate}>
-          <Plus size={16} />Подключить аккаунт
-        </Button>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <Button variant="secondary" onClick={() => void handleExport()} disabled={exporting}>
+            <Download size={16} />{exporting ? 'Экспортируем…' : 'Экспорт данных'}
+          </Button>
+          <Button variant="primary" onClick={openCreate}>
+            <Plus size={16} />Подключить аккаунт
+          </Button>
+        </div>
       </div>
 
       {isLoading && (
@@ -155,7 +173,7 @@ export function AccountsPage() {
               key={account.id}
               account={account}
               onOpen={() => openEdit(account)}
-              onDelete={() => deleteMutation.mutate(account.id)}
+              onDelete={() => setDeleting(account)}
             />
           ))}
         </div>
@@ -172,6 +190,23 @@ export function AccountsPage() {
           error={formError}
         />
       )}
+
+      <Modal
+        open={deleting !== null}
+        onClose={() => setDeleting(null)}
+        title="Отключить почтовый аккаунт?"
+        actions={[
+          { label: 'Отмена', onClick: () => setDeleting(null), variant: 'secondary' },
+          {
+            label: 'Отключить', variant: 'danger', onClick: () => {
+              if (deleting) deleteMutation.mutate(deleting.id)
+              setDeleting(null)
+            },
+          },
+        ]}
+      >
+        Локальная копия папок и писем будет удалена. Письма на почтовом сервере останутся без изменений.
+      </Modal>
 
       {toast.toast && (
         <Toast open variant={toast.toast.variant} message={toast.toast.message} onDismiss={toast.dismiss} />

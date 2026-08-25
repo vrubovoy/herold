@@ -45,6 +45,7 @@ export interface MailAccount {
   smtpUsername: string
   fromName: string
   fromEmail: string
+  sentFilingMode: 'provider' | 'append'
   syncState: 'pending' | 'ok' | 'error'
   lastSyncedAt: string | null
   lastError: string | null
@@ -67,6 +68,7 @@ export interface MailAccountFields {
   smtpPassword: string
   fromName: string
   fromEmail: string
+  sentFilingMode: 'provider' | 'append'
 }
 
 export type MailAccountUpdate = Partial<MailAccountFields>
@@ -102,8 +104,11 @@ export function testImapConnection(input: {
 // For the edit form's "Test connection" when the password field was left
 // blank ("keep existing") - the frontend never has that plaintext to
 // send, so the backend decrypts and tests the already-stored one instead.
-export function testSavedMailAccountConnection(id: string): Promise<TestConnectionResult> {
-  return api.post(`/accounts/${encodeURIComponent(id)}/test-connection`, {})
+export function testSavedMailAccountConnection(
+  id: string,
+  overrides: Partial<Omit<Parameters<typeof testImapConnection>[0], 'imapPassword'>>,
+): Promise<TestConnectionResult> {
+  return api.post(`/accounts/${encodeURIComponent(id)}/test-connection`, overrides)
 }
 
 export interface MailFolder {
@@ -194,6 +199,16 @@ export function attachmentDownloadUrl(messageId: string, attachmentId: string): 
 export async function fetchAttachmentBlob(messageId: string, attachmentId: string): Promise<Blob> {
   const token = getAccessToken()
   const res = await fetch(attachmentDownloadUrl(messageId, attachmentId), {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: 'include',
+  })
+  if (!res.ok) throw new ApiError(res.status, await res.text())
+  return res.blob()
+}
+
+export async function fetchMyExportBlob(): Promise<Blob> {
+  const token = getAccessToken()
+  const res = await fetch('/backend/exports/me', {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     credentials: 'include',
   })

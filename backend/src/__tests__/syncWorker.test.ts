@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 vi.mock('../db/index.js', async () => await import('./helpers/db.js'))
+vi.mock('../lib/outboundResolver.js', () => ({
+  resolveOutboundHost: vi.fn(async () => ({ address: '203.0.113.1', family: 4, lookup: vi.fn() })),
+}))
 
 // A hoisted, stateful ImapFlow mock, extending accounts.test.ts's own
 // constructor-function pattern with `list`, `getMailboxLock`, `fetch`, and
@@ -12,12 +15,13 @@ vi.mock('../db/index.js', async () => await import('./helpers/db.js'))
 // ImapFlow *instances* (i.e. different accounts, or different folder paths
 // within one account) different behavior without relying on call order.
 const {
-  ImapFlowMock, connectMock, logoutMock, closeMock, listMock, getMailboxLockMock, fetchMock,
-  mailboxByPath, listByHost, connectShouldFailForHost,
+  ImapFlowMock, connectMock, logoutMock, closeMock, listMock, getMailboxLockMock, fetchMock, fetchOneMock,
+  mailboxByPath, listByHost, connectShouldFailForHost, bodyByUid,
 } = vi.hoisted(() => {
   const mailboxByPath = new Map<string, { uidValidity: bigint; uidNext: number }>()
   const listByHost = new Map<string, unknown[]>()
   const connectShouldFailForHost = new Set<string>()
+  const bodyByUid = new Map<number, Buffer>()
 
   const connectMock = vi.fn(async function (this: Record<string, unknown>) {
     if (connectShouldFailForHost.has(this['__host'] as string)) {
@@ -41,6 +45,7 @@ const {
     async function* empty() {}
     return empty()
   })
+  const fetchOneMock = vi.fn(async (uid: number) => ({ bodyParts: new Map([['1', bodyByUid.get(uid) ?? Buffer.alloc(0)]]) }))
 
   const ImapFlowMock = vi.fn().mockImplementation(function (this: Record<string, unknown>, options: { host: string }) {
     Object.assign(this, {
@@ -52,10 +57,11 @@ const {
       list: listMock,
       getMailboxLock: getMailboxLockMock,
       fetch: fetchMock,
+      fetchOne: fetchOneMock,
     })
   })
 
-  return { ImapFlowMock, connectMock, logoutMock, closeMock, listMock, getMailboxLockMock, fetchMock, mailboxByPath, listByHost, connectShouldFailForHost }
+  return { ImapFlowMock, connectMock, logoutMock, closeMock, listMock, getMailboxLockMock, fetchMock, fetchOneMock, mailboxByPath, listByHost, connectShouldFailForHost, bodyByUid }
 })
 vi.mock('imapflow', () => ({ ImapFlow: ImapFlowMock }))
 
@@ -190,11 +196,13 @@ beforeEach(() => {
   listMock.mockClear()
   getMailboxLockMock.mockClear()
   fetchMock.mockReset()
+  fetchOneMock.mockClear()
   fetchMock.mockImplementation(() => asyncIterableFrom([]))
   ImapFlowMock.mockClear()
   mailboxByPath.clear()
   listByHost.clear()
   connectShouldFailForHost.clear()
+  bodyByUid.clear()
 })
 
 describe('folder listing / special-use mapping', () => {
@@ -263,6 +271,7 @@ describe('first-time folder + message sync', () => {
     insertAccount({ id: 'acc-1', imapHost: 'host-d' })
     listByHost.set('host-d', [{ path: 'INBOX', flags: new Set(), specialUse: undefined }])
     mailboxByPath.set('INBOX', { uidValidity: 12345n, uidNext: 2 })
+    bodyByUid.set(1, Buffer.from('Hello world, this is the body.'))
 
     fetchMock.mockImplementation((_range: unknown, query: Record<string, unknown>) => {
       if (query['envelope']) {
@@ -292,7 +301,7 @@ describe('first-time folder + message sync', () => {
     const fullCall = fetchMock.mock.calls.find((c) => (c[1] as Record<string, unknown>)['envelope'])
     expect(fullCall).toBeDefined()
     expect(fullCall![1]).toMatchObject({
-      uid: true, envelope: true, flags: true, internalDate: true, size: true, bodyStructure: true, source: true,
+      uid: true, envelope: true, flags: true, internalDate: true, size: true, bodyStructure: true,
     })
     expect(fullCall![2]).toMatchObject({ uid: true })
 
@@ -309,6 +318,7 @@ describe('first-time folder + message sync', () => {
     insertAccount({ id: 'acc-1', imapHost: 'host-e' })
     listByHost.set('host-e', [{ path: 'INBOX', flags: new Set(), specialUse: undefined }])
     mailboxByPath.set('INBOX', { uidValidity: 1n, uidNext: 2 })
+    bodyByUid.set(1, Buffer.from('See attached.'))
 
     fetchMock.mockImplementation((_range: unknown, query: Record<string, unknown>) => {
       if (query['envelope']) {
@@ -348,6 +358,7 @@ describe('second pass: no duplicate re-insertion + flags refresh', () => {
     // message that will ever exist; pass 2's new-message range (2..1) is
     // empty.
     mailboxByPath.set('INBOX', { uidValidity: 1n, uidNext: 2 })
+    bodyByUid.set(1, Buffer.from('Original body text.'))
 
     fetchMock.mockImplementation((_range: unknown, query: Record<string, unknown>) => {
       if (query['envelope']) {
@@ -414,6 +425,7 @@ describe('UIDVALIDITY change', () => {
     // Server now reports a different UIDVALIDITY - the old mirror is
     // meaningless.
     mailboxByPath.set('INBOX', { uidValidity: 2000n, uidNext: 51 })
+    bodyByUid.set(50, Buffer.from('Brand new body.'))
 
     fetchMock.mockImplementation((_range: unknown, query: Record<string, unknown>) => {
       if (query['envelope']) {
@@ -449,6 +461,60 @@ describe('UIDVALIDITY change', () => {
 
     const flagsOnlyCalls = fetchMock.mock.calls.filter((c) => !(c[1] as Record<string, unknown>)['envelope'])
     expect(flagsOnlyCalls).toHaveLength(0)
+  })
+})
+
+describe('authoritative reconciliation', () => {
+  it('removes messages and folders only after complete successful server reads', async () => {
+    const account = insertAccount({ id: 'acc-1', imapHost: 'host-reconcile' })
+    insertFolderRaw({ id: 'folder-old', accountId: account.id, name: 'INBOX', uidValidity: 1, lastSeenUid: 5 })
+    insertMessageRaw({ id: 'message-removed', folderId: 'folder-old', imapUid: 3 })
+    listByHost.set('host-reconcile', [{ path: 'INBOX', flags: new Set(), specialUse: undefined }])
+    mailboxByPath.set('INBOX', { uidValidity: 1n, uidNext: 6 })
+
+    fetchMock.mockImplementation(() => {
+      async function* incomplete() {
+        yield* []
+        throw new Error('FETCH interrupted')
+      }
+      return incomplete()
+    })
+    await runOnePass()
+    expect(getMessagesForFolder('folder-old').map((message) => message.id)).toContain('message-removed')
+
+    fetchMock.mockImplementation(() => asyncIterableFrom([]))
+    await runOnePass()
+    expect(getMessagesForFolder('folder-old')).toHaveLength(0)
+
+    listByHost.set('host-reconcile', [])
+    await runOnePass()
+    expect(getFoldersForAccount(account.id)).toHaveLength(0)
+  })
+
+  it('reconciles a pending Sent row by Message-ID instead of inserting a duplicate', async () => {
+    const account = insertAccount({ id: 'acc-1', imapHost: 'host-sent' })
+    insertFolderRaw({ id: 'folder-sent', accountId: account.id, name: 'Sent', specialUse: 'sent', uidValidity: 1, lastSeenUid: 0 })
+    insertMessageRaw({ id: 'pending-message', folderId: 'folder-sent', imapUid: -1, subject: 'Pending' })
+    sqlite.prepare(
+      "UPDATE mail_messages SET message_id = '<sent@example.com>', reconciliation_state = 'pending' WHERE id = 'pending-message'",
+    ).run()
+    listByHost.set('host-sent', [{ path: 'Sent', flags: new Set(), specialUse: '\\Sent' }])
+    mailboxByPath.set('Sent', { uidValidity: 1n, uidNext: 8 })
+    bodyByUid.set(7, Buffer.from('Filed by provider.'))
+    fetchMock.mockImplementation((_range: unknown, query: Record<string, unknown>) => query['envelope']
+      ? asyncIterableFrom([{
+        uid: 7, envelope: { ...envelopeFor(7, 'Filed'), messageId: '<sent@example.com>' },
+        flags: new Set(['\\Seen']), size: 100, bodyStructure: plainBodyStructure,
+      }])
+      : asyncIterableFrom([]))
+
+    await runOnePass()
+
+    const messages = getMessagesForFolder('folder-sent')
+    expect(messages).toHaveLength(1)
+    expect(messages[0]).toMatchObject({ id: 'pending-message', imap_uid: 7, subject: 'Filed' })
+    expect(sqlite.prepare('SELECT reconciliation_state FROM mail_messages WHERE id = ?').get('pending-message'))
+      .toMatchObject({ reconciliation_state: 'synced' })
   })
 })
 

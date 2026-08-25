@@ -46,6 +46,7 @@ export const mailAccounts = sqliteTable('mail_accounts', {
   smtpPasswordEncrypted: text('smtp_password_encrypted').notNull(),
   fromName: text('from_name').notNull(),
   fromEmail: text('from_email').notNull(),
+  sentFilingMode: text('sent_filing_mode', { enum: ['provider', 'append'] }).notNull().default('provider'),
   // Updated by the sync worker (a later stage) - 'pending' until the
   // first sync pass ever runs, then reflects the outcome of the most
   // recent one, independently per account (one account's failure never
@@ -78,6 +79,7 @@ export const mailFolders = sqliteTable('mail_folders', {
   specialUse: text('special_use', { enum: ['inbox', 'sent', 'drafts', 'trash', 'junk'] }),
   uidValidity: integer('uid_validity').notNull(),
   lastSeenUid: integer('last_seen_uid').notNull().default(0),
+  reconcileCursor: integer('reconcile_cursor').notNull().default(0),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 }, (table) => [
   index('mail_folders_account_idx').on(table.accountId),
@@ -111,12 +113,14 @@ export const mailMessages = sqliteTable('mail_messages', {
   flagsDeleted: integer('flags_deleted', { mode: 'boolean' }).notNull().default(false),
   hasAttachments: integer('has_attachments', { mode: 'boolean' }).notNull().default(false),
   sizeBytes: integer('size_bytes').notNull().default(0),
+  reconciliationState: text('reconciliation_state', { enum: ['pending', 'synced'] }).notNull().default('synced'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 }, (table) => [
   index('mail_messages_folder_idx').on(table.folderId),
   // Guards against double-mirroring the same message if a sync pass is
   // ever retried over a UID range it already inserted.
   uniqueIndex('mail_messages_folder_uid_idx').on(table.folderId, table.imapUid),
+  index('mail_messages_message_id_idx').on(table.folderId, table.messageId),
 ])
 
 export type MailMessage = typeof mailMessages.$inferSelect

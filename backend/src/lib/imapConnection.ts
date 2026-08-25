@@ -1,6 +1,8 @@
 import { ImapFlow } from 'imapflow'
+import { isIP } from 'node:net'
 import type { MailAccount } from '../db/schema.js'
 import { decryptCredential } from './credentialCrypto.js'
+import { resolveOutboundHost } from './outboundResolver.js'
 
 export interface ImapCredentials {
   host: string
@@ -27,23 +29,21 @@ export function localizeImapError(error: unknown): string {
     if (code === 'ECONNREFUSED') return 'Сервер отклонил подключение - проверьте адрес и порт'
     if (code === 'ETIMEDOUT' || code === 'ESOCKETTIMEDOUT') return 'Сервер не отвечает - проверьте адрес, порт и шифрование'
     if (code === 'ECONNRESET' || code === 'EPROTO') return 'Соединение разорвано - проверьте порт и тип шифрования'
+    if (code === 'EOUTBOUND') return 'Адрес почтового сервера запрещён политикой безопасности'
   }
   return 'Не удалось подключиться. Проверьте адрес сервера, логин и пароль'
 }
 
-// imapflow's own `secure` option only distinguishes implicit TLS (true)
-// from "plain, upgrading to STARTTLS if the server offers it" (false) -
-// there's no separate flag to force truly-plaintext-only. 'starttls' and
-// 'none' therefore map to the same underlying behavior; a 'none' account
-// still opportunistically upgrades when the server supports it, which is
-// strictly safer than what the user asked for, never less secure.
-function toImapFlowOptions(credentials: ImapCredentials) {
+// Keep all IMAP clients on one security mapping. Implicit TLS connects
+// securely from byte one, STARTTLS must upgrade before authentication,
+// and none explicitly disables the opportunistic upgrade.
+export async function createImapOptions(credentials: ImapCredentials, verifyOnly = false) {
+  const resolved = await resolveOutboundHost(credentials.host)
   return {
-    host: credentials.host,
-    port: credentials.port,
+    host: credentials.host, port: credentials.port,
     secure: credentials.security === 'tls',
-    auth: { user: credentials.username, pass: credentials.password },
-    logger: false as const,
+    doSTARTTLS: credentials.security === 'starttls' ? true : credentials.security === 'none' ? false : undefined,
+    auth: { user: credentials.username, pass: credentials.password }, logger: false as const,
     // imapflow's own defaults (90s/16s) are far too long for a
     // synchronous "test connection" request - a typo'd or unreachable
     // host should fail back to the user in seconds, not minutes.
@@ -51,13 +51,19 @@ function toImapFlowOptions(credentials: ImapCredentials) {
     greetingTimeout: 10_000,
     // Logs out automatically right after a successful LOGIN - exactly
     // the "can we authenticate", nothing more, this endpoint needs.
-    verifyOnly: true,
-  }
+    verifyOnly,
+    tls: { lookup: resolved.lookup, servername: isIpLiteral(credentials.host) ? undefined : credentials.host },
+  } satisfies ConstructorParameters<typeof ImapFlow>[0]
+}
+
+function isIpLiteral(host: string): boolean {
+  return isIP(host.replace(/^\[|\]$/g, '')) !== 0
 }
 
 export async function testImapConnection(credentials: ImapCredentials): Promise<TestConnectionResult> {
-  const client = new ImapFlow(toImapFlowOptions(credentials))
+  let client: ImapFlow | undefined
   try {
+    client = new ImapFlow(await createImapOptions(credentials, true))
     await client.connect()
     return { ok: true }
   } catch (error) {
@@ -66,7 +72,7 @@ export async function testImapConnection(credentials: ImapCredentials): Promise<
     // verifyOnly already logs out on success; a failed connect() never
     // reached an authenticated state to log out of - close() is a
     // no-op-safe way to tear down the socket either way.
-    client.close()
+    client?.close()
   }
 }
 
@@ -75,16 +81,14 @@ export async function testImapConnection(credentials: ImapCredentials): Promise<
 // connection per call rather than pooling one per account, since these
 // are low-frequency user-triggered actions, not the sync worker's own
 // tight loop.
-function openAccountClient(account: MailAccount): ImapFlow {
-  return new ImapFlow({
+async function openAccountClient(account: MailAccount): Promise<ImapFlow> {
+  return new ImapFlow(await createImapOptions({
     host: account.imapHost,
     port: account.imapPort,
-    secure: account.imapSecurity === 'tls',
-    auth: { user: account.imapUsername, pass: decryptCredential(account.imapPasswordEncrypted) },
-    logger: false,
-    connectionTimeout: 20_000,
-    greetingTimeout: 20_000,
-  })
+    security: account.imapSecurity,
+    username: account.imapUsername,
+    password: decryptCredential(account.imapPasswordEncrypted),
+  }))
 }
 
 async function closeClient(client: ImapFlow): Promise<void> {
@@ -103,15 +107,15 @@ async function closeClient(client: ImapFlow): Promise<void> {
 // Readable still being fed by it, and closing here would cut that
 // stream off mid-flight. It's the returned `close()` that the caller
 // must invoke once the stream is fully drained (or errors).
-export async function openAttachmentStream(account: MailAccount, folderName: string, imapUid: number, partId: string) {
-  const client = openAccountClient(account)
+export async function openAttachmentStream(account: MailAccount, folderName: string, imapUid: number, partId: string, maxBytes: number) {
+  const client = await openAccountClient(account)
 
   const close = () => { client.logout().catch(() => client.close()) }
 
   await client.connect()
   const lock = await client.getMailboxLock(folderName)
   try {
-    const download = await client.download(imapUid, partId, { uid: true })
+    const download = await client.download(imapUid, partId, { uid: true, maxBytes })
     // Releasing the mailbox lock only frees this connection for a
     // *different* command - it doesn't touch the already-in-flight
     // FETCH response the returned stream is still reading from.
@@ -124,17 +128,11 @@ export async function openAttachmentStream(account: MailAccount, folderName: str
   }
 }
 
-// Best-effort mirroring of a just-sent message into the account's own
-// Sent folder - many providers (Gmail, etc.) already auto-file a message
-// sent through their SMTP server, in which case this APPEND produces a
-// harmless duplicate that the next sync pass's UIDVALIDITY/UID bookkeeping
-// never even notices (it's simply another message with a higher UID).
-// Failure here is deliberately swallowed by the caller (see
-// features/messages/router.ts) - the send itself already succeeded, and a
-// missing Sent copy is a cosmetic gap the next sync pass cannot fix on its
-// own only if the provider *also* doesn't auto-file, which is rare.
+// Optional Sent filing for providers that do not auto-file SMTP submissions.
+// The caller invokes this only for append-mode accounts; sync reconciles the
+// pending local row by Message-ID and suppresses duplicate local copies.
 export async function appendToSent(account: MailAccount, folderName: string, raw: Buffer): Promise<void> {
-  const client = openAccountClient(account)
+  const client = await openAccountClient(account)
   try {
     await client.connect()
     await client.append(folderName, raw, ['\\Seen'])
@@ -150,7 +148,7 @@ export async function setMessageFlags(
   account: MailAccount, folderName: string, imapUid: number,
   changes: { seen?: boolean; flagged?: boolean },
 ): Promise<void> {
-  const client = openAccountClient(account)
+  const client = await openAccountClient(account)
   try {
     await client.connect()
     const lock = await client.getMailboxLock(folderName)
@@ -176,7 +174,7 @@ export async function setMessageFlags(
 export async function removeMessage(
   account: MailAccount, folderName: string, imapUid: number, trashFolderName: string | null,
 ): Promise<void> {
-  const client = openAccountClient(account)
+  const client = await openAccountClient(account)
   try {
     await client.connect()
     const lock = await client.getMailboxLock(folderName)

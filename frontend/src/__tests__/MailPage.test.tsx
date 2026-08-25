@@ -49,6 +49,7 @@ const sampleAccount: MailAccount = {
   smtpUsername: 'user@example.com',
   fromName: 'User Name',
   fromEmail: 'user@example.com',
+  sentFilingMode: 'provider',
   syncState: 'ok',
   lastSyncedAt: '2026-08-20T10:00:00.000Z',
   lastError: null,
@@ -220,6 +221,23 @@ describe('MailPage — message list empty state', () => {
     render(<MailPage />, { wrapper: createWrapper() })
 
     await screen.findByText(/нет|пусто/i)
+  })
+})
+
+describe('MailPage — URL-backed pagination', () => {
+  it('loads the URL page offset and navigates to the next page', async () => {
+    const user = userEvent.setup()
+    mockUseSearch.mockReturnValue({ account: sampleAccount.id, folder: inboxFolder.id, page: 2 })
+    vi.mocked(getMailAccounts).mockResolvedValue([sampleAccount])
+    vi.mocked(getMailFolders).mockResolvedValue([inboxFolder])
+    vi.mocked(getFolderMessages).mockResolvedValue({ messages: [unreadMessage], total: 120 })
+
+    render(<MailPage />, { wrapper: createWrapper() })
+    await screen.findByText(unreadMessage.subject!)
+    expect(getFolderMessages).toHaveBeenCalledWith(inboxFolder.id, { q: undefined, limit: 50, offset: 50 })
+
+    await user.click(screen.getByRole('button', { name: /вперёд/i }))
+    expect(extractNavSearch(mockNavigate.mock.calls.at(-1)?.[0])).toMatchObject({ page: 3 })
   })
 })
 
@@ -462,6 +480,8 @@ describe('MailPage — message detail action buttons', () => {
 
     const button = await screen.findByRole('button', { name: /удалить/i })
     await user.click(button)
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: /^удалить$/i }))
 
     await waitFor(() => expect(deleteMailMessage).toHaveBeenCalledWith(messageDetail.id))
   })

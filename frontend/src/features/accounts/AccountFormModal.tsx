@@ -8,6 +8,10 @@ const SECURITY_OPTIONS: { value: MailSecurity; label: string }[] = [
   { value: 'starttls', label: 'STARTTLS' },
   { value: 'none', label: 'Нет' },
 ]
+const SENT_FILING_OPTIONS = [
+  { value: 'provider' as const, label: 'Провайдер' },
+  { value: 'append' as const, label: 'Herold (APPEND)' },
+]
 
 // Most providers pair a security mode with a conventional port -
 // used when unchecking "same as IMAP" to seed the now-visible SMTP
@@ -32,6 +36,7 @@ interface FormState {
   smtpPassword: string
   fromName: string
   fromEmail: string
+  sentFilingMode: 'provider' | 'append'
 }
 
 function initialState(account?: MailAccount): FormState {
@@ -40,7 +45,7 @@ function initialState(account?: MailAccount): FormState {
       label: '', imapHost: '', imapPort: '993', imapSecurity: 'tls', imapUsername: '', imapPassword: '',
       sameAsImap: true,
       smtpHost: '', smtpPort: '587', smtpSecurity: 'starttls', smtpUsername: '', smtpPassword: '',
-      fromName: '', fromEmail: '',
+      fromName: '', fromEmail: '', sentFilingMode: 'provider',
     }
   }
   return {
@@ -54,7 +59,7 @@ function initialState(account?: MailAccount): FormState {
     sameAsImap: false,
     smtpHost: account.smtpHost, smtpPort: String(account.smtpPort), smtpSecurity: account.smtpSecurity,
     smtpUsername: account.smtpUsername, smtpPassword: '',
-    fromName: account.fromName, fromEmail: account.fromEmail,
+    fromName: account.fromName, fromEmail: account.fromEmail, sentFilingMode: account.sentFilingMode,
   }
 }
 
@@ -126,7 +131,12 @@ export function AccountFormModal({ open, account, onClose, onSubmit, pending, er
       // back, so a saved account with no new password re-tests via the
       // stored-credential endpoint instead of sending one along.
       const result = isEdit && account && !form.imapPassword
-        ? await testSavedMailAccountConnection(account.id)
+        ? await testSavedMailAccountConnection(account.id, {
+          imapHost: form.imapHost,
+          imapPort: Number(form.imapPort),
+          imapSecurity: form.imapSecurity,
+          imapUsername: form.imapUsername,
+        })
         : await testImapConnection({
           imapHost: form.imapHost,
           imapPort: Number(form.imapPort),
@@ -161,6 +171,7 @@ export function AccountFormModal({ open, account, onClose, onSubmit, pending, er
       smtpPassword: smtp.password,
       fromName: form.fromName.trim(),
       fromEmail: form.fromEmail.trim(),
+      sentFilingMode: form.sentFilingMode,
     }
     if (!isEdit) {
       onSubmit(fields)
@@ -284,6 +295,13 @@ export function AccountFormModal({ open, account, onClose, onSubmit, pending, er
         <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
           У большинства провайдеров (включая Яндекс) email отправителя должен совпадать с логином IMAP - иначе сервер отклонит отправку.
         </p>
+        <div>
+          <span className="label">Сохранение отправленных</span>
+          <SegmentedControl options={SENT_FILING_OPTIONS} value={form.sentFilingMode} onChange={(v) => update('sentFilingMode', v)} />
+          <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+            По умолчанию копию сохраняет почтовый провайдер. APPEND нужен только провайдерам, которые этого не делают.
+          </p>
+        </div>
       </div>
     </Modal>
   )
