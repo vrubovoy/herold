@@ -4,7 +4,8 @@ import { logger } from 'hono/logger'
 import { createCorsMiddleware } from '@zudar107/schloss-server-kit'
 import { bodyLimit } from 'hono/body-limit'
 import { db, sqlite } from './db/index.js'
-import { parseMigrateOnStartup, prepareDatabase } from './db/migrate.js'
+import { assertSchemaCurrent, parseMigrateOnStartup, prepareDatabase } from './db/migrate.js'
+import { buildInfo } from './build-info.js'
 import { usersRouter } from './features/users/router.js'
 import { accountsRouter } from './features/accounts/router.js'
 import { foldersRouter } from './features/folders/router.js'
@@ -29,8 +30,15 @@ app.use('*', bodyLimit({
 app.use('*', logger())
 app.use('*', createCorsMiddleware({ allowedOrigins: ALLOWED_ORIGINS }))
 
-app.get('/health', (c) => c.json({ status: 'ok', service: 'Herold' }))
-app.get('/ready', (c) => c.json({ status: 'ready', service: 'Herold' }))
+app.get('/health', (c) => c.json({ status: 'ok', service: 'Herold', ...buildInfo }))
+app.get('/ready', (c) => {
+  try {
+    assertSchemaCurrent(sqlite)
+    return c.json({ status: 'ready', service: 'Herold' })
+  } catch {
+    return c.json({ status: 'unavailable', service: 'Herold' }, 503)
+  }
+})
 
 // Reached from herold/frontend's own /docs page as /backend/openapi.json
 // (the frontend container's Caddyfile already proxies /backend/* here
