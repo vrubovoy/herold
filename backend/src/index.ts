@@ -3,10 +3,8 @@ import { Hono } from 'hono'
 import { logger } from 'hono/logger'
 import { createCorsMiddleware } from '@zudar107/schloss-server-kit'
 import { bodyLimit } from 'hono/body-limit'
-import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
-import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
-import { db } from './db/index.js'
+import { db, sqlite } from './db/index.js'
+import { parseMigrateOnStartup, prepareDatabase } from './db/migrate.js'
 import { usersRouter } from './features/users/router.js'
 import { accountsRouter } from './features/accounts/router.js'
 import { foldersRouter } from './features/folders/router.js'
@@ -17,13 +15,7 @@ import { openApiDocument } from './openapi.js'
 import { startMailSyncWorker } from './sync/worker.js'
 import { deletionsRouter } from './features/deletions/router.js'
 
-// Resolved relative to this file so it works both in dev (src/index.ts,
-// migrations at src/db/migrations) and in the compiled build
-// (dist/index.js, migrations at dist/db/migrations) without a hardcoded
-// path that only matches one of the two.
-const __dirname = dirname(fileURLToPath(import.meta.url))
-
-migrate(db, { migrationsFolder: join(__dirname, 'db/migrations') })
+prepareDatabase(db, sqlite, parseMigrateOnStartup(process.env['MIGRATE_ON_STARTUP']))
 
 const ALLOWED_ORIGINS = (process.env['ALLOWED_ORIGINS'] ?? 'http://localhost:5179')
   .split(',').map((o) => o.trim())

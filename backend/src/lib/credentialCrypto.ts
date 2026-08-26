@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
+import { resolveSecret } from '../config.js'
 
 // IMAP/SMTP passwords are the one genuinely sensitive thing Herold stores
 // of its own (everything else - JWTs, sessions - lives in Schlüssel).
@@ -11,7 +12,7 @@ const ALGORITHM = 'aes-256-gcm'
 const IV_LENGTH = 12
 
 function encryptionKey(): Buffer {
-  const raw = process.env['HEROLD_CREDENTIAL_ENCRYPTION_KEY']
+  const raw = resolveSecret('HEROLD_CREDENTIAL_ENCRYPTION_KEY')
   if (!raw) throw new Error('HEROLD_CREDENTIAL_ENCRYPTION_KEY is not set')
   const key = Buffer.from(raw, 'base64')
   if (key.length !== 32) {

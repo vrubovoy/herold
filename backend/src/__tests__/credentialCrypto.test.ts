@@ -1,14 +1,24 @@
 import { describe, it, expect, afterEach } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { encryptCredential, decryptCredential } from '../lib/credentialCrypto.js'
 
 const ENV_KEY = 'HEROLD_CREDENTIAL_ENCRYPTION_KEY'
+const FILE_ENV_KEY = `${ENV_KEY}_FILE`
 const ORIGINAL_KEY = process.env[ENV_KEY]
+const ORIGINAL_FILE_KEY = process.env[FILE_ENV_KEY]
 
 afterEach(() => {
   if (ORIGINAL_KEY === undefined) {
     delete process.env[ENV_KEY]
   } else {
     process.env[ENV_KEY] = ORIGINAL_KEY
+  }
+  if (ORIGINAL_FILE_KEY === undefined) {
+    delete process.env[FILE_ENV_KEY]
+  } else {
+    process.env[FILE_ENV_KEY] = ORIGINAL_FILE_KEY
   }
 })
 
@@ -83,5 +93,30 @@ describe('encryptCredential / decryptCredential — encryption key validation', 
     const stored = encryptCredential('a-value-encrypted-with-the-real-key')
     delete process.env[ENV_KEY]
     expect(() => decryptCredential(stored)).toThrow()
+  })
+})
+
+describe('encryptCredential / decryptCredential — key sourced from HEROLD_CREDENTIAL_ENCRYPTION_KEY_FILE', () => {
+  it('round-trips when the key is read from a mounted file instead of the env var directly', () => {
+    delete process.env[ENV_KEY]
+    const dir = mkdtempSync(join(tmpdir(), 'herold-key-'))
+    const path = join(dir, 'key')
+    try {
+      const key = Buffer.alloc(32, 9).toString('base64')
+      writeFileSync(path, `${key}\n`)
+      process.env[FILE_ENV_KEY] = path
+
+      const stored = encryptCredential('a-password-encrypted-via-file-secret')
+      expect(decryptCredential(stored)).toBe('a-password-encrypted-via-file-secret')
+    } finally {
+      delete process.env[FILE_ENV_KEY]
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects setting both the direct and file variables', () => {
+    process.env[ENV_KEY] = Buffer.alloc(32, 1).toString('base64')
+    process.env[FILE_ENV_KEY] = '/nonexistent/path'
+    expect(() => encryptCredential('anything')).toThrow('mutually exclusive')
   })
 })
