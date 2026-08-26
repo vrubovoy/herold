@@ -114,8 +114,7 @@ pnpm --filter frontend lint
 
 `.env.example` contains Docker Compose substitutions. Direct backend runs
 use the defaults shown below unless the variables are exported in the shell;
-the backend does not load `.env` itself. Vite does load `.env`, but only
-exposes variables prefixed with `VITE_` to frontend code.
+the backend does not load `.env` itself.
 
 | Variable | Purpose |
 |---|---|
@@ -132,14 +131,15 @@ exposes variables prefixed with `VITE_` to frontend code.
 | `HEROLD_MAX_ACCOUNT_SYNC_BYTES` | Maximum text bytes fetched for one account per sync pass (default 26214400) |
 | `HEROLD_MAX_ACCOUNT_SYNC_MESSAGES` | Maximum UID span processed for one account per sync pass (default 1000) |
 | `HEROLD_MAX_ATTACHMENT_BYTES` | Maximum bytes streamed for one attachment (default 26214400) |
-| `SCHLUSSEL_WEB_URL` | Schlüssel browser URL baked into the frontend by Docker Compose |
-| `SCHLOSS_URL` | Schloss home URL baked into the frontend by Docker Compose |
-| `GLOCKE_URL` | Glocke URL baked into the frontend by Docker Compose (the shared notification bell) |
+| `SCHLUSSEL_WEB_URL` | Schlüssel browser origin passed to the frontend container at runtime |
+| `SCHLOSS_URL` | Schloss home origin passed to the frontend container at runtime |
+| `GLOCKE_URL` | Glocke browser origin passed at runtime for the shared notification bell |
 
-For a direct Vite build, the corresponding build-time variables are
-`VITE_SCHLUSSEL_URL`, `VITE_SCHLOSS_URL`, and `VITE_GLOCKE_URL`; their
-local defaults are `http://localhost:4001`, `http://localhost:3000`, and
-`http://localhost:5177`, respectively.
+The frontend loads `/config.js` synchronously before its bundle. Docker generates that
+file from these runtime variables on every container start, so changing an origin does
+not rebuild the image. Direct Vite development uses the localhost values in
+`frontend/public/config.js`. Configured values must be bare `http://` or `https://`
+origins without credentials, path, query, or fragment; malformed explicit values throw.
 
 Mail hostnames are resolved before every new IMAP or SMTP connection. Every
 answer must be public or operator-allowlisted, and the selected address is

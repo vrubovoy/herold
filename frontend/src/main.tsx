@@ -6,13 +6,14 @@ import { AuthContext, useAuthProvider } from './hooks/useAuth'
 import { router } from './router'
 import { queryClient } from './lib/queryClient'
 import { applyTheme, getStoredTheme, ThemeSync } from '@zudar107/schloss-ui'
+import { getRuntimeConfig } from './lib/runtimeConfig'
 import './index.css'
 
 // Same origin schlussel's own login/account links already point at (see
 // lib/authRedirect.ts) - it doubles as the theme-sync API's origin since
 // Herold's own localStorage can't be read from schloss's or schlussel's
 // origin directly.
-const SCHLUSSEL_URL: string = (import.meta.env.VITE_SCHLUSSEL_URL as string | undefined) ?? 'http://localhost:4001'
+const SCHLUSSEL_URL = getRuntimeConfig().schlusselUrl
 
 applyTheme(getStoredTheme())
 
