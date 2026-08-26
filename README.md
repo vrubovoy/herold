@@ -124,6 +124,8 @@ the backend does not load `.env` itself.
 | `ALLOWED_ORIGINS` | Comma-separated CORS allowlist when running the backend directly |
 | `HEROLD_ALLOWED_ORIGINS` | CORS allowlist passed to the backend by Docker Compose |
 | `HEROLD_CREDENTIAL_ENCRYPTION_KEY` | Encrypts stored IMAP/SMTP passwords at rest - a 32-byte base64 key, e.g. `openssl rand -base64 32` |
+| `HEROLD_CREDENTIAL_ENCRYPTION_KEY_FILE` | Reads the same key from a mounted file instead of the env var directly; mutually exclusive with `HEROLD_CREDENTIAL_ENCRYPTION_KEY` |
+| `MIGRATE_ON_STARTUP` | `true` (default) runs pending migrations on every container start; `false` only asserts the schema is already current and fails startup otherwise - pair with `pnpm db:migrate` as an explicit deploy step |
 | `HEROLD_SYNC_INTERVAL_MS` | How often the background sync worker polls connected accounts for new mail (default 180000 = 3 minutes) |
 | `HEROLD_OUTBOUND_HOST_ALLOWLIST` | Comma-separated exact or `*.suffix` hostnames allowed to resolve to non-public addresses |
 | `HEROLD_OUTBOUND_CIDR_ALLOWLIST` | Comma-separated IPv4/IPv6 CIDRs allowed for outbound IMAP/SMTP connections |
