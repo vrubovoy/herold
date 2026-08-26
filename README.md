@@ -135,7 +135,7 @@ the backend does not load `.env` itself.
 | `HEROLD_MAX_ATTACHMENT_BYTES` | Maximum bytes streamed for one attachment (default 26214400) |
 | `SCHLUSSEL_WEB_URL` | Schlüssel browser origin passed to the frontend container at runtime |
 | `SCHLOSS_URL` | Schloss home origin passed to the frontend container at runtime |
-| `GLOCKE_URL` | Glocke browser origin passed at runtime for the shared notification bell |
+| `GLOCKE_URL` | Glocke browser origin passed at runtime for the shared notification bell; leaving it unset also hides the bell entirely |
 
 The frontend loads `/config.js` synchronously before its bundle. Docker generates that
 file from these runtime variables on every container start, so changing an origin does

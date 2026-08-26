@@ -28,11 +28,11 @@ interface HeaderProps {
 // which app they're currently in, not only from the one that raised it.
 export function Header({ user, onLogout, onOpenMobileMenu }: HeaderProps) {
   const [loggingOut, setLoggingOut] = useState(false)
-  const { schlossUrl, glockeUrl, schlusselUrl } = getRuntimeConfig()
-  const notificationOrigin = normalizeNotificationOrigin(glockeUrl)
+  const { schlossUrl, glockeUrl, schlusselUrl, services } = getRuntimeConfig()
+  const notificationOrigin = services.glocke ? normalizeNotificationOrigin(glockeUrl) : null
   const notificationState = useUnreadNotifications({
     glockeOrigin: glockeUrl,
-    userId: loggingOut ? null : user?.id ?? null,
+    userId: loggingOut || !services.glocke ? null : user?.id ?? null,
     apiClient,
   })
   const avatarUrl = useAvatarUrl({
