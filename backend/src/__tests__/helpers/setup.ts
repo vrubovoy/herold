@@ -1,12 +1,15 @@
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
+import { checkJwksReachable } from '@zudar107/schloss-server-kit'
 import { usersRouter } from '../../features/users/router.js'
 import { accountsRouter } from '../../features/accounts/router.js'
 import { foldersRouter } from '../../features/folders/router.js'
 import { messagesRouter } from '../../features/messages/router.js'
 import { exportsRouter } from '../../features/exports/router.js'
-import { requireAuth, requireAdmin } from '../../middleware/auth.js'
+import { JWKS_URL, requireAuth, requireAdmin } from '../../middleware/auth.js'
 import { openApiDocument } from '../../openapi.js'
+import { assertSchemaCurrent } from '../../db/migrate.js'
+import { sqlite } from '../../db/index.js'
 
 /**
  * Build a minimal Hono app wired up with the real routers plus the
@@ -33,7 +36,20 @@ export function createTestApp() {
     }),
   )
   app.get('/health', (c) => c.json({ status: 'ok', service: 'Herold' }))
-  app.get('/ready', (c) => c.json({ status: 'ready', service: 'Herold' }))
+  // Mirrors index.ts's own real /ready logic (schema currency, then the
+  // Schlüssel JWKS dependency), not just a static "ready" stub - see the
+  // module comment for why this is reconstructed rather than imported.
+  app.get('/ready', async (c) => {
+    try {
+      assertSchemaCurrent(sqlite)
+    } catch {
+      return c.json({ status: 'unavailable', service: 'Herold' }, 503)
+    }
+    if (!(await checkJwksReachable(JWKS_URL))) {
+      return c.json({ status: 'unavailable', service: 'Herold' }, 503)
+    }
+    return c.json({ status: 'ready', service: 'Herold' })
+  })
   app.get('/openapi.json', requireAuth, requireAdmin, (c) => c.json(openApiDocument))
   app.route('/users', usersRouter)
   app.route('/accounts', accountsRouter)

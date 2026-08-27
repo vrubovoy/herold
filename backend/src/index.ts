@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { logger } from 'hono/logger'
-import { createCorsMiddleware } from '@zudar107/schloss-server-kit'
+import { checkJwksReachable, createCorsMiddleware } from '@zudar107/schloss-server-kit'
 import { bodyLimit } from 'hono/body-limit'
 import { db, sqlite } from './db/index.js'
 import { assertSchemaCurrent, parseMigrateOnStartup, prepareDatabase } from './db/migrate.js'
@@ -11,7 +11,7 @@ import { accountsRouter } from './features/accounts/router.js'
 import { foldersRouter } from './features/folders/router.js'
 import { messagesRouter } from './features/messages/router.js'
 import { exportsRouter } from './features/exports/router.js'
-import { requireAuth, requireAdmin } from './middleware/auth.js'
+import { JWKS_URL, requireAuth, requireAdmin } from './middleware/auth.js'
 import { openApiDocument } from './openapi.js'
 import { startMailSyncWorker } from './sync/worker.js'
 import { deletionsRouter } from './features/deletions/router.js'
@@ -31,13 +31,16 @@ app.use('*', logger())
 app.use('*', createCorsMiddleware({ allowedOrigins: ALLOWED_ORIGINS }))
 
 app.get('/health', (c) => c.json({ status: 'ok', service: 'Herold', ...buildInfo }))
-app.get('/ready', (c) => {
+app.get('/ready', async (c) => {
   try {
     assertSchemaCurrent(sqlite)
-    return c.json({ status: 'ready', service: 'Herold' })
   } catch {
     return c.json({ status: 'unavailable', service: 'Herold' }, 503)
   }
+  if (!(await checkJwksReachable(JWKS_URL))) {
+    return c.json({ status: 'unavailable', service: 'Herold' }, 503)
+  }
+  return c.json({ status: 'ready', service: 'Herold' })
 })
 
 // Reached from herold/frontend's own /docs page as /backend/openapi.json
